@@ -71,7 +71,8 @@ Save to `{@artifacts_path}/plan.md`.
 - Define data models for Logon request/response.
 - **Verification**: Add unit tests in `KeybridgeClientTest.kt` with mocked API responses.
 
-### [ ] Step: Authentication & Session Management
+### [x] Step: Authentication & Session Management
+<!-- chat-id: 8c0f2e70-cd89-464d-9b24-da789ec42dea -->
 - Implement `AuthenticationManager.kt` as a service to manage `sessionId`.
 - Create `LoginDialog.kt` UI to capture server URL, username, and password.
 - Implement a login action/button.

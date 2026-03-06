@@ -10,10 +10,18 @@
     <depends>com.intellij.modules.platform</depends>
 
     <extensions defaultExtensionNs="com.intellij">
-        <!-- Add extensions here -->
+        <projectService serviceImplementation="com.revfcu.keyscript.auth.AuthenticationManager"/>
+        <notificationGroup id="Keyscript Notifications" displayType="BALLOON"/>
     </extensions>
 
     <actions>
-        <!-- Add actions here -->
+        <group id="KeyscriptMenu" text="Keyscript" popup="true">
+            <add-to-group group-id="MainMenu" anchor="last"/>
+            <action id="com.revfcu.keyscript.actions.LoginAction"
+                    class="com.revfcu.keyscript.actions.LoginAction"
+                    text="Logon to Keystone"
+                    description="Logs into the Keystone server via Keybridge API">
+            </action>
+        </group>
     </actions>
 </idea-plugin>
