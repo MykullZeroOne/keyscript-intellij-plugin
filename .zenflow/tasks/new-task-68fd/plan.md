@@ -65,7 +65,8 @@ Save to `{@artifacts_path}/plan.md`.
 - Create core directory structure: `com.revfcu.keyscript.{actions,api,auth,options,settings}`.
 - **Verification**: Run `./gradlew build` to ensure the project skeleton is valid.
 
-### [ ] Step: Keybridge API Client Implementation
+### [x] Step: Keybridge API Client Implementation
+<!-- chat-id: f9222ff8-5fdb-42a4-a81e-f0d2b07d8e25 -->
 - Implement `KeybridgeClient.kt` using OkHttp to handle the `logon` query.
 - Define data models for Logon request/response.
 - **Verification**: Add unit tests in `KeybridgeClientTest.kt` with mocked API responses.
