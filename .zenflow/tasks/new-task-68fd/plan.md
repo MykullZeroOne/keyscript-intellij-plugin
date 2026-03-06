@@ -41,7 +41,8 @@ Save to `{@artifacts_path}/spec.md` with:
 - Delivery phases (incremental, testable milestones)
 - Verification approach using project lint/test commands
 
-### [ ] Step: Planning
+### [x] Step: Planning
+<!-- chat-id: d3ddafaa-7723-4e35-9a11-fd908855c791 -->
 
 Create a detailed implementation plan based on `{@artifacts_path}/spec.md`.
 
@@ -57,8 +58,36 @@ If the feature is trivial and doesn't warrant full specification, update this wo
 
 Save to `{@artifacts_path}/plan.md`.
 
-### [ ] Step: Implementation
+### [ ] Step: Project Initialization
+- Initialize Gradle project with `build.gradle.kts` and `settings.gradle.kts`.
+- Set up `plugin.xml` with basic metadata.
+- Create core directory structure: `com.revfcu.keyscript.{actions,api,auth,options,settings}`.
+- **Verification**: Run `./gradlew build` to ensure the project skeleton is valid.
 
-This step should be replaced with detailed implementation tasks from the Planning step.
+### [ ] Step: Keybridge API Client Implementation
+- Implement `KeybridgeClient.kt` using OkHttp to handle the `logon` query.
+- Define data models for Logon request/response.
+- **Verification**: Add unit tests in `KeybridgeClientTest.kt` with mocked API responses.
 
-If Planning didn't replace this step, execute the tasks in `{@artifacts_path}/plan.md`, updating checkboxes as you go. Run planned tests/lint and record results in plan.md.
+### [ ] Step: Authentication & Session Management
+- Implement `AuthenticationManager.kt` as a service to manage `sessionId`.
+- Create `LoginDialog.kt` UI to capture server URL, username, and password.
+- Implement a login action/button.
+- **Verification**: Manually test the login flow and verify the `sessionId` is correctly stored in memory.
+
+### [ ] Step: Script Options & Tool Window
+- Implement `ScriptOptionsService.kt` using `PersistentStateComponent` to save serials (person, account, etc.).
+- Implement `ScriptOptionsToolWindow.kt` to allow users to view/edit these serials.
+- Register the tool window in `plugin.xml`.
+- **Verification**: Verify that values entered in the tool window persist across IDE restarts.
+
+### [ ] Step: Execution Engine Integration
+- Implement `RunKeyscriptAction.kt` and register it in the context menu for `.js` files.
+- Implement payload construction logic combining `sessionId` and `scriptOptions`.
+- Implement the "Run" trigger (opening the Keystone execution URL in a browser/tab).
+- **Verification**: Verify that right-clicking a `.js` file and selecting "Run as Keyscript" correctly passes parameters to the target URL.
+
+### [ ] Step: Plugin Settings & Refinement
+- Implement `KeyscriptSettingsConfigurable.kt` for global settings (e.g., default Keybridge URL).
+- Refine UI components and error handling.
+- **Verification**: Run `check` and `verifyPlugin` Gradle tasks.
