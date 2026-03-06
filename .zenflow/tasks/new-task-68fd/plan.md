@@ -13,7 +13,7 @@ If you are blocked and need user clarification, mark the current step with `[!]`
 
 ## Workflow Steps
 
-### [ ] Step: Requirements
+### [x] Step: Requirements
 
 Create a Product Requirements Document (PRD) based on the feature description.
 
