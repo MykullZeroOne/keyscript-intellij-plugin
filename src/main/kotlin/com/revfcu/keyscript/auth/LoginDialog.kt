@@ -2,6 +2,8 @@ package com.revfcu.keyscript.auth
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.openapi.ui.ValidationInfo
+import com.revfcu.keyscript.settings.KeyscriptSettingsService
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextField
@@ -10,7 +12,7 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 
 class LoginDialog(project: Project?) : DialogWrapper(project) {
-    private val serverUrlField = JBTextField("http://keystonedev.revfcu.com:52310/Development")
+    private val serverUrlField = JBTextField(KeyscriptSettingsService.getInstance().keybridgeUrl)
     private val userNameField = JBTextField("rev-api-user")
     private val passwordField = JBPasswordField()
     private val deviceNameField = JBTextField("Keybridge-Rev")
@@ -28,6 +30,19 @@ class LoginDialog(project: Project?) : DialogWrapper(project) {
             .addLabeledComponent(JBLabel("Device Name: "), deviceNameField, 1, false)
             .addComponentFillVertically(JPanel(), 0)
             .panel
+    }
+
+    override fun doValidate(): ValidationInfo? {
+        if (serverUrlField.text.isBlank()) {
+            return ValidationInfo("Server URL cannot be empty", serverUrlField)
+        }
+        if (userNameField.text.isBlank()) {
+            return ValidationInfo("Username cannot be empty", userNameField)
+        }
+        if (passwordField.password.isEmpty()) {
+            return ValidationInfo("Password cannot be empty", passwordField)
+        }
+        return null
     }
 
     fun getServerUrl(): String = serverUrlField.text

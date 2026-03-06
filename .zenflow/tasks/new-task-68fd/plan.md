@@ -92,7 +92,8 @@ Save to `{@artifacts_path}/plan.md`.
 - Implement the "Run" trigger (opening the Keystone execution URL in a browser/tab).
 - **Verification**: Verify that right-clicking a `.js` file and selecting "Run as Keyscript" correctly passes parameters to the target URL.
 
-### [ ] Step: Plugin Settings & Refinement
+### [x] Step: Plugin Settings & Refinement
+<!-- chat-id: 9caa5d2a-96c9-4f80-bfc3-40d0448c21f4 -->
 - Implement `KeyscriptSettingsConfigurable.kt` for global settings (e.g., default Keybridge URL).
 - Refine UI components and error handling.
 - **Verification**: Run `check` and `verifyPlugin` Gradle tasks.

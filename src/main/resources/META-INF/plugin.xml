@@ -4,7 +4,7 @@
     <vendor email="support@revfcu.com" url="http://www.revfcu.com">REV Federal Credit Union</vendor>
 
     <description><![CDATA[
-    Enhanced Keyscript IDE for JetBrains.
+    Enhanced Keyscript IDE for JetBrains. This plugin provides integration with Keystone and Keybridge API to manage and run Keyscripts directly from the IDE with proper execution context and session management.
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
@@ -12,6 +12,10 @@
     <extensions defaultExtensionNs="com.intellij">
         <projectService serviceImplementation="com.revfcu.keyscript.auth.AuthenticationManager"/>
         <projectService serviceImplementation="com.revfcu.keyscript.options.ScriptOptionsService"/>
+        <applicationService serviceImplementation="com.revfcu.keyscript.settings.KeyscriptSettingsService"/>
+        <applicationConfigurable instance="com.revfcu.keyscript.settings.KeyscriptSettingsConfigurable"
+                                 id="com.revfcu.keyscript.settings.KeyscriptSettingsConfigurable"
+                                 displayName="Keyscript IDE"/>
         <toolWindow id="Keyscript Options" secondary="true" anchor="right" factoryClass="com.revfcu.keyscript.options.ScriptOptionsToolWindowFactory"/>
         <notificationGroup id="Keyscript Notifications" displayType="BALLOON"/>
     </extensions>

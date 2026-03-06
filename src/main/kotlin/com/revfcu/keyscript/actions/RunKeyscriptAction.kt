@@ -14,6 +14,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.revfcu.keyscript.api.KeystoneClient
 import com.revfcu.keyscript.auth.AuthenticationManager
 import com.revfcu.keyscript.options.ScriptOptionsService
+import com.revfcu.keyscript.settings.KeyscriptSettingsService
 import java.io.IOException
 
 class RunKeyscriptAction : AnAction() {
@@ -32,7 +33,8 @@ class RunKeyscriptAction : AnAction() {
             return
         }
 
-        val serverUrl = authManager.getServerUrl() ?: return
+        val settings = KeyscriptSettingsService.getInstance()
+        val executionUrl = settings.keystoneExecutionUrl.ifBlank { authManager.getServerUrl() } ?: return
         val sessionId = authManager.getSessionId() ?: return
         val optionsService = ScriptOptionsService.getInstance(project)
 
@@ -65,7 +67,7 @@ class RunKeyscriptAction : AnAction() {
                     // Include script content in payload for "better" execution without local script server
                     payload["userScript"] = scriptContent
 
-                    val client = KeystoneClient(serverUrl)
+                    val client = KeystoneClient(executionUrl)
                     val paramsId = client.storeSessionParams(payload)
                     
                     if (paramsId != null) {
