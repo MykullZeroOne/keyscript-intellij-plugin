@@ -24,6 +24,13 @@
                     text="Logon to Keystone"
                     description="Logs into the Keystone server via Keybridge API">
             </action>
+            <action id="com.revfcu.keyscript.actions.RunKeyscriptAction"
+                    class="com.revfcu.keyscript.actions.RunKeyscriptAction"
+                    text="Run as Keyscript"
+                    description="Runs the selected JS file as a Keyscript in Keystone">
+                <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+                <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            </action>
         </group>
     </actions>
 </idea-plugin>

@@ -7,6 +7,8 @@ import com.intellij.openapi.project.Project
 class AuthenticationManager(private val project: Project) {
     private var sessionId: String? = null
     private var serverUrl: String? = null
+    private var userName: String? = null
+    private var deviceName: String? = null
 
     fun setSessionId(id: String?) {
         sessionId = id
@@ -19,6 +21,18 @@ class AuthenticationManager(private val project: Project) {
     }
 
     fun getServerUrl(): String? = serverUrl
+
+    fun setUserName(name: String?) {
+        userName = name
+    }
+
+    fun getUserName(): String? = userName
+
+    fun setDeviceName(name: String?) {
+        deviceName = name
+    }
+
+    fun getDeviceName(): String? = deviceName
 
     fun isLoggedIn(): Boolean = sessionId != null
 }

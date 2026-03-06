@@ -85,7 +85,8 @@ Save to `{@artifacts_path}/plan.md`.
 - Register the tool window in `plugin.xml`.
 - **Verification**: Verify that values entered in the tool window persist across IDE restarts.
 
-### [ ] Step: Execution Engine Integration
+### [x] Step: Execution Engine Integration
+<!-- chat-id: b623453b-4838-4c8f-a648-696ac2a62bd0 -->
 - Implement `RunKeyscriptAction.kt` and register it in the context menu for `.js` files.
 - Implement payload construction logic combining `sessionId` and `scriptOptions`.
 - Implement the "Run" trigger (opening the Keystone execution URL in a browser/tab).

@@ -32,6 +32,8 @@ class LoginAction : AnAction() {
                             val authManager = project.getService(AuthenticationManager::class.java)
                             authManager.setSessionId(sessionId)
                             authManager.setServerUrl(serverUrl)
+                            authManager.setUserName(userName)
+                            authManager.setDeviceName(deviceName)
                             
                             showNotification(project, "Logged in successfully", NotificationType.INFORMATION)
                         } else {
