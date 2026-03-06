@@ -1,0 +1,19 @@
+<idea-plugin>
+    <id>com.revfcu.keyscript-ide</id>
+    <name>Keyscript IDE</name>
+    <vendor email="support@revfcu.com" url="http://www.revfcu.com">REV Federal Credit Union</vendor>
+
+    <description><![CDATA[
+    Enhanced Keyscript IDE for JetBrains.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Add extensions here -->
+    </extensions>
+
+    <actions>
+        <!-- Add actions here -->
+    </actions>
+</idea-plugin>

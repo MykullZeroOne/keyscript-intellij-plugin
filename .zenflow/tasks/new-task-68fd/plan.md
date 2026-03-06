@@ -58,7 +58,8 @@ If the feature is trivial and doesn't warrant full specification, update this wo
 
 Save to `{@artifacts_path}/plan.md`.
 
-### [ ] Step: Project Initialization
+### [x] Step: Project Initialization
+<!-- chat-id: b47cf5b1-c458-486d-a782-971440c095c2 -->
 - Initialize Gradle project with `build.gradle.kts` and `settings.gradle.kts`.
 - Set up `plugin.xml` with basic metadata.
 - Create core directory structure: `com.revfcu.keyscript.{actions,api,auth,options,settings}`.
