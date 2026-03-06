@@ -11,6 +11,7 @@ class AuthenticationManager(private val project: Project) {
     private var deviceName: String? = null
 
     fun setSessionId(id: String?) {
+        println("AuthenticationManager: Storing sessionId: $id")
         sessionId = id
     }
 

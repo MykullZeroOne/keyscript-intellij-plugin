@@ -35,7 +35,8 @@ class LoginAction : AnAction() {
                             authManager.setUserName(userName)
                             authManager.setDeviceName(deviceName)
                             
-                            showNotification(project, "Logged in successfully", NotificationType.INFORMATION)
+                            println("Session stored: ${authManager.getSessionId()}")
+                            showNotification(project, "Logged in successfully. SessionID: $sessionId", NotificationType.INFORMATION)
                         } else {
                             showNotification(project, "Logon failed: No sessionId returned", NotificationType.ERROR)
                         }

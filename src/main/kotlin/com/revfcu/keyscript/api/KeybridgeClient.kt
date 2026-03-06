@@ -39,6 +39,7 @@ class KeybridgeClient(
             }
 
             val bodyString = response.body?.string() ?: throw IOException("Empty response body")
+            println("Keybridge Response: $bodyString")
             val logonResponse = gson.fromJson(bodyString, LogonResponse::class.java)
             
             return if (logonResponse.error != null) {
