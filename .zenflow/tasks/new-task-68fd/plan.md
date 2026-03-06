@@ -78,7 +78,8 @@ Save to `{@artifacts_path}/plan.md`.
 - Implement a login action/button.
 - **Verification**: Manually test the login flow and verify the `sessionId` is correctly stored in memory.
 
-### [ ] Step: Script Options & Tool Window
+### [x] Step: Script Options & Tool Window
+<!-- chat-id: 176fb0ac-d7db-42de-af38-81654f4ab3fa -->
 - Implement `ScriptOptionsService.kt` using `PersistentStateComponent` to save serials (person, account, etc.).
 - Implement `ScriptOptionsToolWindow.kt` to allow users to view/edit these serials.
 - Register the tool window in `plugin.xml`.

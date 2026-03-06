@@ -11,6 +11,8 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <projectService serviceImplementation="com.revfcu.keyscript.auth.AuthenticationManager"/>
+        <projectService serviceImplementation="com.revfcu.keyscript.options.ScriptOptionsService"/>
+        <toolWindow id="Keyscript Options" secondary="true" anchor="right" factoryClass="com.revfcu.keyscript.options.ScriptOptionsToolWindowFactory"/>
         <notificationGroup id="Keyscript Notifications" displayType="BALLOON"/>
     </extensions>
 
