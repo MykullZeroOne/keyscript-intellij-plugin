@@ -65,7 +65,8 @@ Save to `{@artifacts_path}/plan.md`.
 - Analyze service scoping (App vs Project) for `AuthenticationManager`, `ScriptOptionsService`, `KeyscriptSettingsService`.
 - Check lifecycle management and `Disposable` usage.
 
-### [ ] Step: Security and State Management Review
+### [x] Step: Security and State Management Review
+<!-- chat-id: 9b88c473-77a5-4e36-b4dc-e3cd334ee92e -->
 - Audit credential handling in `LoginDialog` and `KeybridgeClient`.
 - Verify `PersistentStateComponent` usage in `KeyscriptSettingsService`.
 - Check for plain-text storage of sensitive data (passwords, session IDs).
