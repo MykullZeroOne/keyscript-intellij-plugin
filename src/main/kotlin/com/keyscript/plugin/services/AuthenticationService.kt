@@ -144,10 +144,13 @@ class AuthenticationService(private val project: Project) {
             val apiBase = settings.getKeystoneApiBaseUrl()
             val url = "$apiBase/$instance"
 
-            val deviceName = deviceId.ifEmpty { "KeyscriptIDE" }
+            // Use the same device ID from login; fall back to settings; last resort empty
+            val deviceName = deviceId.ifEmpty { settings.deviceServiceUrl.ifEmpty { "" } }
             val logonJson = """{"query":{"logon":{"userName":"$username","deviceName":"$deviceName","password":"${escapeJson(password)}"}}}"""
 
-            log.info("Obtaining API session via logon: $url")
+            // Log the request (mask password)
+            val logSafeJson = """{"query":{"logon":{"userName":"$username","deviceName":"$deviceName","password":"***"}}}"""
+            log.info("API logon request: POST $url body=$logSafeJson")
 
             val conn = URI(url).toURL().openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
@@ -164,7 +167,7 @@ class AuthenticationService(private val project: Project) {
                 conn.errorStream?.bufferedReader()?.readText() ?: ""
             }
 
-            log.info("API logon response: status=$status, body=${responseBody.take(300)}")
+            log.info("API logon response: status=$status, body=${responseBody.take(500)}")
 
             // Extract sessionId from the response
             val apiSessionId = extractJsonField(responseBody, "sessionId")
