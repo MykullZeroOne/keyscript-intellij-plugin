@@ -15,6 +15,8 @@ import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.net.ssl.X509TrustManager
+import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URLEncoder
 
 /**
@@ -111,6 +113,9 @@ class AuthenticationService(private val project: Project) {
                     }
                 } catch (_: Exception) {}
 
+                // Login directly to Keystone API for deploy/search operations
+                loginDirectToKeystoneApi(username, password, instance)
+
                 notify("Logged in as $userName ($instance)", NotificationType.INFORMATION)
                 LoginResult(true, userName)
             } else {
@@ -190,6 +195,54 @@ class AuthenticationService(private val project: Project) {
             result[match.groupValues[1]] = match.groupValues[2]
         }
         return result
+    }
+
+    /**
+     * Login directly to Keystone API (e.g. http://keystonedev.revfcu.com:52310)
+     * to get a session ID valid for direct API calls (deploy, search).
+     */
+    private fun loginDirectToKeystoneApi(username: String, password: String, instance: String) {
+        try {
+            val settings = KeyscriptSettings.getInstance()
+            val apiBase = settings.getKeystoneApiBaseUrl()
+            val url = "$apiBase/$instance/UserLogin"
+
+            val formBody = listOf(
+                "loginUsername" to username,
+                "loginPassword" to password,
+                "loginDeviceIdentifier" to "",
+                "loginDeviceInsertOption" to "N"
+            ).joinToString("&") { (k, v) ->
+                "${URLEncoder.encode(k, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}"
+            }
+
+            val conn = URI(url).toURL().openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 15_000
+            conn.doOutput = true
+            conn.outputStream.use { it.write(formBody.toByteArray()) }
+
+            val status = conn.responseCode
+            val body = try {
+                conn.inputStream.bufferedReader().readText()
+            } catch (_: Exception) {
+                conn.errorStream?.bufferedReader()?.readText() ?: ""
+            }
+
+            log.info("Direct Keystone login: status=$status, body=${body.take(200)}")
+
+            val apiSessionId = extractJsonField(body, "JSESSIONID")
+            if (apiSessionId != null) {
+                SessionService.getInstance(project).setKeystoneApiSession(apiSessionId)
+                log.info("Direct Keystone API session obtained: ${apiSessionId.take(8)}...")
+            } else {
+                log.warn("Direct Keystone login did not return JSESSIONID")
+            }
+        } catch (e: Exception) {
+            log.warn("Direct Keystone API login failed (non-fatal): ${e.message}")
+        }
     }
 
     private fun notify(message: String, type: NotificationType) {

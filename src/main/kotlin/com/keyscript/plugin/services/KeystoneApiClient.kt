@@ -47,7 +47,7 @@ class KeystoneApiClient(private val project: Project) {
         // Inject sessionId into query.$attr
         val queryNode = query.get("query") as? ObjectNode ?: query
         val attrNode = queryNode.putObject("\$attr")
-        attrNode.put("sessionId", session.jsessionId)
+        attrNode.put("sessionId", session.apiSessionId)
 
         val body = mapper.writeValueAsString(query)
 
@@ -55,7 +55,7 @@ class KeystoneApiClient(private val project: Project) {
             val conn = URI(url).toURL().openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json")
-            conn.setRequestProperty("Cookie", "JSESSIONID=${session.jsessionId}")
+            conn.setRequestProperty("Cookie", "JSESSIONID=${session.apiSessionId}")
             conn.connectTimeout = 15_000
             conn.readTimeout = 30_000
             conn.doOutput = true

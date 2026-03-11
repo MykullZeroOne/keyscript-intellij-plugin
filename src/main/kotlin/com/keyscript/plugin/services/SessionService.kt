@@ -36,7 +36,11 @@ class SessionService(private val project: Project) : Disposable {
     private var heartbeatTimer: Timer? = null
     private val reloginInProgress = AtomicBoolean(false)
 
+    /** JSESSIONID from proxy login — used for preview/run through the proxy */
     var jsessionId: String = ""
+        private set
+    /** JSESSIONID from direct Keystone API login — used for deploy/search API calls */
+    var keystoneApiSessionId: String = ""
         private set
     var username: String = ""
         private set
@@ -45,6 +49,9 @@ class SessionService(private val project: Project) : Disposable {
         private set
 
     val isLoggedIn: Boolean get() = jsessionId.isNotEmpty()
+
+    /** The session ID to use for direct Keystone API calls (falls back to proxy session) */
+    val apiSessionId: String get() = keystoneApiSessionId.ifEmpty { jsessionId }
 
     fun setSession(jsessionId: String, username: String, loginData: Map<String, String> = emptyMap()) {
         this.jsessionId = jsessionId
@@ -55,9 +62,15 @@ class SessionService(private val project: Project) : Disposable {
         startHeartbeat()
     }
 
+    fun setKeystoneApiSession(sessionId: String) {
+        this.keystoneApiSessionId = sessionId
+        log.info("Keystone API session established: ${sessionId.take(8)}...")
+    }
+
     fun clearSession() {
         val wasLoggedIn = isLoggedIn
         jsessionId = ""
+        keystoneApiSessionId = ""
         username = ""
         instance = ""
         loginData = emptyMap()

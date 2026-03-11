@@ -40,7 +40,7 @@ class DeploymentService(private val project: Project) {
             return emptyList<ScriptSearchResult>() to "Not logged in"
         }
 
-        val body = buildSearchJson(session.jsessionId, description)
+        val body = buildSearchJson(session.apiSessionId, description)
         val (responseBody, error) = postToKeystone(body)
         if (error != null) return emptyList<ScriptSearchResult>() to error
 
@@ -76,7 +76,7 @@ class DeploymentService(private val project: Project) {
         )
 
         val body = buildQueryJson(
-            sessionId = session.jsessionId,
+            sessionId = session.apiSessionId,
             operation = "I",
             targetSerial = null,
             fields = fields
@@ -110,7 +110,7 @@ class DeploymentService(private val project: Project) {
         }
 
         val body = buildQueryJson(
-            sessionId = session.jsessionId,
+            sessionId = session.apiSessionId,
             operation = "U",
             targetSerial = targetSerial,
             fields = fields
@@ -216,7 +216,7 @@ class DeploymentService(private val project: Project) {
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json")
             val session = SessionService.getInstance(project)
-            conn.setRequestProperty("Cookie", "JSESSIONID=${session.jsessionId}")
+            conn.setRequestProperty("Cookie", "JSESSIONID=${session.apiSessionId}")
             conn.connectTimeout = 15_000
             conn.readTimeout = 30_000
             conn.doOutput = true
