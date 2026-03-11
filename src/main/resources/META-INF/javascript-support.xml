@@ -1,0 +1,4 @@
+<idea-plugin>
+    <!-- Optional JavaScript plugin support - only loaded when JavaScript plugin is available -->
+    <!-- TODO: Register CR framework .d.ts as a JavaScript library when CRLibraryProvider is implemented -->
+</idea-plugin>

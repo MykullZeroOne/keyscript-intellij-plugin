@@ -1,40 +1,105 @@
 <idea-plugin>
-    <id>com.revfcu.keyscript-ide</id>
+    <id>com.keyscript.plugin</id>
     <name>Keyscript IDE</name>
-    <vendor email="support@revfcu.com" url="http://www.revfcu.com">REV Federal Credit Union</vendor>
+    <vendor>Keyscript</vendor>
 
     <description><![CDATA[
-    Enhanced Keyscript IDE for JetBrains. This plugin provides integration with Keystone and Keybridge API to manage and run Keyscripts directly from the IDE with proper execution context and session management.
+    Development environment for Keystone scripts. Provides JCEF preview, embedded proxy,
+    authentication, script parameters, CR framework completions, and developer tools.
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
+    <depends optional="true" config-file="javascript-support.xml">JavaScript</depends>
 
     <extensions defaultExtensionNs="com.intellij">
-        <projectService serviceImplementation="com.revfcu.keyscript.auth.AuthenticationManager"/>
-        <projectService serviceImplementation="com.revfcu.keyscript.options.ScriptOptionsService"/>
-        <applicationService serviceImplementation="com.revfcu.keyscript.settings.KeyscriptSettingsService"/>
-        <applicationConfigurable instance="com.revfcu.keyscript.settings.KeyscriptSettingsConfigurable"
-                                 id="com.revfcu.keyscript.settings.KeyscriptSettingsConfigurable"
+        <!-- Settings -->
+        <applicationService serviceImplementation="com.keyscript.plugin.settings.KeyscriptSettings"/>
+        <applicationConfigurable instance="com.keyscript.plugin.settings.KeyscriptSettingsConfigurable"
+                                 id="com.keyscript.plugin.settings"
                                  displayName="Keyscript IDE"/>
-        <toolWindow id="Keyscript Options" secondary="true" anchor="right" factoryClass="com.revfcu.keyscript.options.ScriptOptionsToolWindowFactory"/>
-        <notificationGroup id="Keyscript Notifications" displayType="BALLOON"/>
+        <projectConfigurable instance="com.keyscript.plugin.settings.KeyscriptProjectConfigurable"
+                             id="com.keyscript.plugin.settings.project"
+                             displayName="Keyscript IDE"
+                             parentId="language"/>
+
+        <!-- Project Services -->
+        <projectService serviceImplementation="com.keyscript.plugin.services.KeyscriptProjectService"/>
+        <projectService serviceImplementation="com.keyscript.plugin.services.ProxyServerService"/>
+        <projectService serviceImplementation="com.keyscript.plugin.services.AuthenticationService"/>
+        <projectService serviceImplementation="com.keyscript.plugin.services.SessionService"/>
+        <projectService serviceImplementation="com.keyscript.plugin.services.ScriptParameterService"/>
+        <projectService serviceImplementation="com.keyscript.plugin.services.NetworkMonitorService"/>
+        <projectService serviceImplementation="com.keyscript.plugin.services.RunKeyscriptService"/>
+        <projectService serviceImplementation="com.keyscript.plugin.services.PreviewContentService"/>
+        <projectService serviceImplementation="com.keyscript.plugin.services.WorkspaceUiService"/>
+        <projectService serviceImplementation="com.keyscript.plugin.services.KeyscriptProjectDetector"/>
+
+        <!-- Startup -->
+        <postStartupActivity implementation="com.keyscript.plugin.services.KeyscriptProjectService$StartupActivity"/>
+
+        <!-- Grouped Tool Windows (secondary=true prevents auto-activation on startup) -->
+        <toolWindow id="Keyscript Workspace" anchor="right" secondary="true"
+                    factoryClass="com.keyscript.plugin.toolwindow.KeyscriptWorkspaceToolWindowFactory"
+                    icon="AllIcons.General.Web"/>
+        <toolWindow id="Keyscript Data Tools" anchor="bottom" secondary="true"
+                    factoryClass="com.keyscript.plugin.toolwindow.KeyscriptDataToolsToolWindowFactory"
+                    icon="AllIcons.Nodes.DataTables"/>
+        <toolWindow id="Keyscript Diagnostics" anchor="bottom" secondary="true"
+                    factoryClass="com.keyscript.plugin.toolwindow.KeyscriptDiagnosticsToolWindowFactory"
+                    icon="AllIcons.Debugger.Console"/>
+
+        <!-- Run Configuration -->
+        <configurationType implementation="com.keyscript.plugin.runconfig.KeyscriptRunConfigurationType"/>
+        <runConfigurationProducer implementation="com.keyscript.plugin.runconfig.KeyscriptRunConfigurationProducer"/>
+        <programRunner implementation="com.keyscript.plugin.runconfig.KeyscriptProgramRunner"/>
+        <runLineMarkerContributor language="JavaScript"
+                                   implementationClass="com.keyscript.plugin.runconfig.KeyscriptRunLineMarkerContributor"/>
+
+        <!-- Completions -->
+        <completion.contributor language="JavaScript"
+                                implementationClass="com.keyscript.plugin.completion.CRCompletionContributor"/>
+        <fileEditorProvider id="keyscript-split-preview"
+                            implementation="com.keyscript.plugin.preview.KeyscriptSplitEditorProvider"/>
+
+        <!-- Live Templates -->
+        <liveTemplateContext contextId="KEYSCRIPT_JS"
+                            implementation="com.keyscript.plugin.completion.KeyscriptTemplateContext"/>
+        <defaultLiveTemplates file="/liveTemplates/Keyscript.xml"/>
+
+        <!-- Status Bar -->
+        <statusBarWidgetFactory id="KeyscriptLoginStatus"
+                                 implementation="com.keyscript.plugin.statusbar.LoginStatusBarWidgetFactory"
+                                 order="after position"/>
+
+        <!-- New Project -->
+        <moduleBuilder builderClass="com.keyscript.plugin.project.KeyscriptModuleBuilder"
+                       id="KEYSCRIPT_MODULE"
+                       order="first"/>
+
+        <!-- Notifications -->
+        <notificationGroup id="Keyscript" displayType="BALLOON"/>
     </extensions>
 
     <actions>
         <group id="KeyscriptMenu" text="Keyscript" popup="true">
             <add-to-group group-id="MainMenu" anchor="last"/>
-            <action id="com.revfcu.keyscript.actions.LoginAction"
-                    class="com.revfcu.keyscript.actions.LoginAction"
-                    text="Logon to Keystone"
-                    description="Logs into the Keystone server via Keybridge API">
-            </action>
-            <action id="com.revfcu.keyscript.actions.RunKeyscriptAction"
-                    class="com.revfcu.keyscript.actions.RunKeyscriptAction"
-                    text="Run as Keyscript"
-                    description="Runs the selected JS file as a Keyscript in Keystone">
-                <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+            <action id="Keyscript.Login"
+                    class="com.keyscript.plugin.actions.LoginAction"
+                    text="Login to Keystone"
+                    description="Authenticate with Keystone server"/>
+            <action id="Keyscript.RunScript"
+                    class="com.keyscript.plugin.actions.RunKeyscriptAction"
+                    text="Run Keyscript"
+                    description="Run the current file as a Keyscript"
+                    icon="AllIcons.Actions.Execute">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F10"/>
                 <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+                <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
             </action>
+            <action id="Keyscript.OpenInChrome"
+                    class="com.keyscript.plugin.actions.OpenInChromeAction"
+                    text="Open Preview in Chrome"
+                    description="Open the current script preview in Chrome browser"/>
         </group>
     </actions>
 </idea-plugin>

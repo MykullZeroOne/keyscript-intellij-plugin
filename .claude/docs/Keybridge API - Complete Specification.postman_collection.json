@@ -1,0 +1,1173 @@
+{
+  "info": {
+    "_postman_id": "40feaa89-8ae9-410a-8842-86a5e3b884bc",
+    "name": "Keybridge API - Complete Specification",
+    "description": "# Keybridge Query Language API - Complete Collection\n\n## Overview\n\nThis comprehensive Postman collection provides complete coverage of the Corelation Keybridge Query Language API for the Keystone Banking Core system.\n\n**Document Version:** 2024-09-25  \n**API Namespace:** `http://www.corelationinc.com/queryLanguage/v1.0`  \n**Protocol:** HTTP/HTTPS with XML/JSON support\n\n## Architecture\n\n### Message Flow Model\n\n```\nRequest → Response (Session-based)\n├── Logon: Authenticate & obtain sessionId\n├── Sequence: Group multiple transactions\n├── Transaction: Atomic unit of work\n└── Step: Individual operations within transaction\n\n ```\n\n### Core Container Types\n\n**Financial Containers:**\n\n- `shareContainer` - Savings/share accounts\n    \n- `loanContainer` - Loan accounts\n    \n- `accountContainer` - Member accounts\n    \n- `cardContainer` - Debit/credit cards\n    \n\n**Operational Containers:**\n\n- `postingRequest` - Financial transactions\n    \n- `searchContainer` - Query records with filters\n    \n- `recordTreeContainer` - Hierarchical record retrieval\n    \n- `tranHistoryContainer` - Transaction history\n    \n\n## Collection Variables\n\n- **baseUrl**: Keystone server endpoint\n    \n- **username**: API username\n    \n- **password**: API password\n    \n- **deviceName**: Device identifier\n    \n- **sessionId**: Current session token (auto-populated)\n    \n\n## Operation Codes\n\n### Record Operations\n\n- `V` = View/Retrieve (read-only)\n    \n- `U` = Update/Modify\n    \n- `I` = Insert/Create\n    \n- `D` = Delete\n    \n- `M` = Move (hierarchy)\n    \n\n### Category Codes\n\n- `S` = Share (savings)\n    \n- `L` = Loan\n    \n- `A` = Line of Credit\n    \n- `C` = Credit Card\n    \n- `W` = Withdrawal\n    \n- `D` = Deposit\n    \n- `P` = Payment\n    \n\n## Authentication\n\nAll requests (except Logon) require a valid sessionId. The collection automatically:\n\n1. Stores sessionId from Logon response\n    \n2. Includes it in all subsequent requests\n    \n3. Handles session expiration\n    \n\n## Response Handling\n\n**Success:** `result=\"posted\"`  \n**Failure:** `result=\"failed\"` with exception details\n\n## Data Types\n\n- **Text**: String values\n    \n- **Money**: Decimal with exactly 2 places (e.g., 100.00)\n    \n- **Rate**: Percentage as decimal (e.g., 5.25 for 5.25%)\n    \n- **Date**: ISO format (YYYY-MM-DD)\n    \n- **Serial**: Integer identifier\n    \n\n## Best Practices\n\n1. Reuse sessions within timeout window (\\~30 min)\n    \n2. Handle exceptions in all responses\n    \n3. Use pagination for large result sets\n    \n4. Keep transactions atomic\n    \n5. Request metadata only when needed",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "24359012",
+    "_collection_link": "https://go.postman.co/collection/24359012-40feaa89-8ae9-410a-8842-86a5e3b884bc?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "Logon",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Extract sessionId from XML response",
+                  "if (pm.response.code === 200) {",
+                  "    const responseText = pm.response.text();",
+                  "    const sessionIdMatch = responseText.match(/<sessionId>([^<]+)<\\/sessionId>/);",
+                  "    ",
+                  "    if (sessionIdMatch && sessionIdMatch[1]) {",
+                  "        pm.collectionVariables.set('sessionId', sessionIdMatch[1]);",
+                  "        console.log('Session ID saved:', sessionIdMatch[1]);",
+                  "    }",
+                  "    ",
+                  "    // Check for exceptions",
+                  "    if (responseText.includes('<exception>')) {",
+                  "        console.error('Login failed - check credentials');",
+                  "    } else {",
+                  "        console.log('Login successful');",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\">\n    <logon>\n        <userName>{{username}}</userName>\n        <deviceName>{{deviceName}}</deviceName>\n        <password>{{password}}</password>\n    </logon>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Authenticate and obtain sessionId.\n\n**Request Elements:**\n- `userName`: User credentials\n- `deviceName`: Client identifier\n- `password`: User password\n\n**Response:**\n- `sessionId`: Session token for subsequent requests\n- `exception`: Error details if authentication fails\n\n**Example Response:**\n```xml\n<?xml version=\"1.0\"?>\n<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\">\n    <logon>\n        <sessionId>abc123xyz789...</sessionId>\n    </logon>\n</query>\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Logoff",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <logoff/>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Terminate current session.\n\n**Request:**\n- Requires valid sessionId\n- Empty `<logoff/>` element\n\n**Best Practice:**\n- Always logoff when done\n- Frees server resources\n- Invalidates sessionId"
+          },
+          "response": []
+        }
+      ],
+      "description": "Session management and user authentication operations.\n\n## Logon Process\n\n1. Send username, password, and deviceName\n2. Receive sessionId in response\n3. Use sessionId in all subsequent requests\n4. Sessions timeout after ~30 minutes\n\n## Session Management\n\n- Store sessionId securely\n- Reuse within timeout window\n- Handle expiration gracefully\n- Call Logoff when done"
+    },
+    {
+      "name": "2. Person Operations",
+      "item": [
+        {
+          "name": "View Person",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <record>\n                    <tableName>PERSON</tableName>\n                    <operation option=\"V\"/>\n                    <targetSerial>12345</targetSerial>\n                    <includeTableMetadata option=\"N\"/>\n                    <includeColumnMetadata option=\"N\"/>\n                    <includeRowDescriptions option=\"Y\"/>\n                    <includeAllColumns option=\"Y\"/>\n                </record>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Retrieve person record by serial.\n\n**Operation:** V (View)\n**Parameters:**\n- `targetSerial`: Person record identifier\n- `includeAllColumns`: Return all fields\n- `includeRowDescriptions`: Include field descriptions"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Person",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <record>\n                    <tableName>PERSON</tableName>\n                    <operation option=\"I\"/>\n                    <field>\n                        <columnName>FIRST_NAME</columnName>\n                        <newContents>John</newContents>\n                    </field>\n                    <field>\n                        <columnName>LAST_NAME</columnName>\n                        <newContents>Doe</newContents>\n                    </field>\n                    <field>\n                        <columnName>BIRTH_DATE</columnName>\n                        <newContents>1990-05-15</newContents>\n                    </field>\n                    <field>\n                        <columnName>CATEGORY</columnName>\n                        <newContents>I</newContents>\n                    </field>\n                    <field>\n                        <columnName>TAX_ID</columnName>\n                        <newContents>123456789</newContents>\n                    </field>\n                </record>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Create new person record.\n\n**Operation:** I (Insert)\n**Required Fields:**\n- `FIRST_NAME`: First name\n- `LAST_NAME`: Last name\n- `BIRTH_DATE`: Date of birth (YYYY-MM-DD)\n- `CATEGORY`: I=Individual, B=Business\n- `TAX_ID`: SSN/TIN (9 digits)"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Person",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <record>\n                    <tableName>PERSON</tableName>\n                    <operation option=\"U\"/>\n                    <targetSerial>12345</targetSerial>\n                    <field>\n                        <columnName>FIRST_NAME</columnName>\n                        <newContents>Jane</newContents>\n                    </field>\n                    <field>\n                        <columnName>EMAIL_ADDRESS</columnName>\n                        <newContents>jane.doe@example.com</newContents>\n                    </field>\n                </record>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Update existing person record.\n\n**Operation:** U (Update)\n**Required:**\n- `targetSerial`: Record to update\n- One or more `field` elements with changes\n\n**Notes:**\n- Only specified fields are updated\n- Other fields remain unchanged"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Person",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <record>\n                    <tableName>PERSON</tableName>\n                    <operation option=\"D\"/>\n                    <targetSerial>12345</targetSerial>\n                </record>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Delete person record.\n\n**Operation:** D (Delete)\n**Warning:** \n- Cannot delete if child records exist\n- Consider closing instead of deleting\n- Deletion is permanent"
+          },
+          "response": []
+        },
+        {
+          "name": "Search Person by Name",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <search>\n                    <tableName>PERSON</tableName>\n                    <filterName>PERSON_NAME_SEARCH</filterName>\n                    <includeSelectColumns option=\"Y\"/>\n                    <returnLimit>50</returnLimit>\n                    <parameter>\n                        <parameterName>LAST_NAME</parameterName>\n                        <contents>Smith</contents>\n                    </parameter>\n                    <parameter>\n                        <parameterName>FIRST_NAME</parameterName>\n                        <contents>John</contents>\n                    </parameter>\n                </search>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Search for persons by name.\n\n**Filter:** PERSON_NAME_SEARCH\n**Parameters:**\n- `LAST_NAME`: Last name (partial match)\n- `FIRST_NAME`: First name (optional)\n- `returnLimit`: Max results to return\n\n**Returns:**\n- List of matching person serials\n- Selected column data if requested"
+          },
+          "response": []
+        }
+      ],
+      "description": "Member/person CRUD operations.\n\n## Person Table\n\nCore table for member information including:\n- Personal details (name, birth date, SSN)\n- Contact information\n- Tax details\n- Member status\n\n## Common Fields\n\n- `PERSON_SERIAL`: Unique identifier\n- `FIRST_NAME`, `LAST_NAME`: Name fields\n- `BIRTH_DATE`: Date of birth\n- `CATEGORY`: Member type (I=Individual, B=Business, etc.)\n- `TAX_ID`: SSN/TIN\n- `MEMBER_STATUS`: Account status"
+    },
+    {
+      "name": "3. Account Operations",
+      "item": [
+        {
+          "name": "View Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <record>\n                    <tableName>ACCOUNT</tableName>\n                    <operation option=\"V\"/>\n                    <targetSerial>35985</targetSerial>\n                    <includeAllColumns option=\"Y\"/>\n                </record>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Retrieve account record."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <record>\n                    <tableName>ACCOUNT</tableName>\n                    <operation option=\"U\"/>\n                    <targetSerial>35985</targetSerial>\n                    <field>\n                        <columnName>ACCOUNT_TITLE</columnName>\n                        <newContents>Updated Account Title</newContents>\n                    </field>\n                </record>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Update account information."
+          },
+          "response": []
+        },
+        {
+          "name": "Search Account by Number",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <search>\n                    <tableName>ACCOUNT</tableName>\n                    <filterName>ACCOUNT_NUMBER</filterName>\n                    <includeSelectColumns option=\"Y\"/>\n                    <parameter>\n                        <parameterName>ACCOUNT_NUMBER</parameterName>\n                        <contents>1234567890</contents>\n                    </parameter>\n                </search>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Search for account by account number."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Account with Tree",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <recordTree>\n                    <tableName>ACCOUNT</tableName>\n                    <targetSerial>35985</targetSerial>\n                    <includeChildren option=\"Y\"/>\n                    <includeDetail option=\"Y\"/>\n                </recordTree>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Retrieve account with all child records (shares, loans, cards, etc.).\n\n**Returns:**\n- Account data\n- All shares under account\n- All loans under account\n- All cards under account\n- Person relationships"
+          },
+          "response": []
+        }
+      ],
+      "description": "Member account management operations.\n\n## Account Table\n\nParent container for shares and loans:\n- Account number assignment\n- Account title/ownership\n- Account relationships\n- Account-level processing\n\n## Key Fields\n\n- `ACCOUNT_SERIAL`: Unique identifier\n- `ACCOUNT_NUMBER`: Member-facing account number\n- `ACCOUNT_TITLE`: Legal title (trusts, etc.)\n- `CATEGORY`: Normal, Commercial, UTMA, etc.\n- `RELATIONSHIP_SERIAL`: Account relationship type\n- `OPEN_DATE`, `CLOSE_DATE`: Lifecycle dates"
+    },
+    {
+      "name": "4. Share Operations",
+      "item": [
+        {
+          "name": "View Share",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <record>\n                    <tableName>SHARE</tableName>\n                    <operation option=\"V\"/>\n                    <targetSerial>27356</targetSerial>\n                    <includeAllColumns option=\"Y\"/>\n                </record>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Retrieve share/savings account details."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Share",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <record>\n                    <tableName>SHARE</tableName>\n                    <operation option=\"I\"/>\n                    <field>\n                        <columnName>ACCOUNT_SERIAL</columnName>\n                        <newContents>35985</newContents>\n                    </field>\n                    <field>\n                        <columnName>TYPE_SERIAL</columnName>\n                        <newContents>10</newContents>\n                    </field>\n                    <field>\n                        <columnName>DESCRIPTION</columnName>\n                        <newContents>Savings Account</newContents>\n                    </field>\n                    <field>\n                        <columnName>OPEN_DATE</columnName>\n                        <newContents>2025-10-28</newContents>\n                    </field>\n                </record>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Create new share account.\n\n**Required:**\n- `ACCOUNT_SERIAL`: Parent account\n- `TYPE_SERIAL`: Share type\n- `OPEN_DATE`: Opening date"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Share",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <record>\n                    <tableName>SHARE</tableName>\n                    <operation option=\"U\"/>\n                    <targetSerial>27356</targetSerial>\n                    <field>\n                        <columnName>DESCRIPTION</columnName>\n                        <newContents>Updated Description</newContents>\n                    </field>\n                    <field>\n                        <columnName>COURTESY_PAY_LIMIT</columnName>\n                        <newContents>500.00</newContents>\n                    </field>\n                </record>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Update share account details."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Share Posting Status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <postingStatus>\n                    <targetCategory option=\"S\"/>\n                    <targetSerial>27356</targetSerial>\n                </postingStatus>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Get share posting status with complete shareContainer.\n\n**Returns:**\n- Full share container with all fields\n- Balance information\n- Hold amounts\n- Available balance\n- All share attributes"
+          },
+          "response": []
+        }
+      ],
+      "description": "Savings/share account operations.\n\n## Share Container Elements\n\n### Core Fields\n- `serial`: Share identifier\n- `typeSerial`: Share type\n- `balance`: Current balance\n- `availableBalance`: Available for withdrawal\n- `openDate`, `closeDate`: Lifecycle dates\n\n### Maturity (Certificates)\n- `maturityDate`: Certificate maturity\n- `maturityFrequency`: Renewal frequency\n- `certificateDividendsAvailable`: Dividend options\n\n### Dividend Information\n- `dividendCalculationSerial`: Rate calculation\n- `dividendCustomRate`: Override rate\n- `dividendAccruedAmount`: Accrued dividends\n\n### Regulatory\n- `regDCount`: Regulation D transaction count\n- `regDLimiting`: Reg D enforcement option\n\n### Overdraft Protection\n- `courtesyPayLimit`: OD limit\n- `courtesyPayRestrictionSerial`: OD restrictions"
+    },
+    {
+      "name": "5. Loan Operations",
+      "item": [
+        {
+          "name": "View Loan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <record>\n                    <tableName>LOAN</tableName>\n                    <operation option=\"V\"/>\n                    <targetSerial>37798</targetSerial>\n                    <includeAllColumns option=\"Y\"/>\n                </record>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Retrieve loan account details."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Loan Posting Status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <postingStatus>\n                    <targetCategory option=\"L\"/>\n                    <targetSerial>37798</targetSerial>\n                </postingStatus>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Get complete loan posting status.\n\n**Returns loanContainer with:**\n- Current balance and payment status\n- Interest accrued\n- Delinquency information\n- Payment schedule details\n- All loan attributes"
+          },
+          "response": []
+        },
+        {
+          "name": "Calculate Loan Payoff",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <loanPayoffRequest>\n                    <targetSerial>37798</targetSerial>\n                    <payoffDate>2025-10-31</payoffDate>\n                </loanPayoffRequest>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Calculate loan payoff amount.\n\n**Parameters:**\n- `targetSerial`: Loan identifier\n- `payoffDate`: Effective payoff date\n\n**Returns:**\n- Principal balance\n- Interest to date\n- Fees\n- Total payoff amount"
+          },
+          "response": []
+        }
+      ],
+      "description": "Loan account operations and payments.\n\n## Loan Container Elements\n\n### Core Fields\n- `serial`: Loan identifier\n- `typeSerial`: Loan type\n- `balance`: Current balance\n- `principalBalance`: Principal amount\n- `interestUnpaid`: Unpaid interest\n\n### Payment Information\n- `paymentAmount`: Regular payment\n- `paymentDueDate`: Next due date\n- `paymentFrequency`: Payment schedule\n- `paymentLastDate`: Last payment date\n- `paymentCountScheduled`: Total scheduled\n- `paymentCountMade`: Payments made\n\n### Delinquency Tracking\n- `paymentCountDelinquent30To59Days`\n- `paymentCountDelinquent60To89Days`\n- `paymentCountDelinquent90To119Days`\n- `paymentCountDelinquent120AndUpDays`\n\n### Interest\n- `interestRate`: Current rate\n- `interestCalculationDate`: Last calculation\n- `interestPrepaid`: Prepaid interest\n\n### Dates\n- `originalLoanDate`: Origination\n- `maturityDate`: Final maturity\n- `lastAdvanceDate`: Last advance"
+    },
+    {
+      "name": "6. Financial Transactions",
+      "item": [
+        {
+          "name": "Deposit to Share",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <personSerial>12345</personSerial>\n            <step>\n                <postingRequest label=\"deposit\">\n                    <targetCategory option=\"S\"/>\n                    <targetSerial>27356</targetSerial>\n                    <category option=\"D\"/>\n                    <source option=\"S\"/>\n                    <amount>100.00</amount>\n                    <description>Cash deposit</description>\n                </postingRequest>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Post deposit to share account.\n\n**Fields:**\n- `personSerial`: Member making transaction\n- `targetCategory`: S for share\n- `targetSerial`: Share identifier\n- `category`: D for deposit\n- `source`: Transaction source (S=cash)\n- `amount`: Positive amount\n- `description`: Transaction description"
+          },
+          "response": []
+        },
+        {
+          "name": "Withdrawal from Share",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <personSerial>12345</personSerial>\n            <step>\n                <postingRequest label=\"withdrawal\">\n                    <targetCategory option=\"S\"/>\n                    <targetSerial>27356</targetSerial>\n                    <category option=\"W\"/>\n                    <source option=\"S\"/>\n                    <amount>50.00</amount>\n                    <description>Cash withdrawal</description>\n                </postingRequest>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Withdraw from share account."
+          },
+          "response": []
+        },
+        {
+          "name": "Transfer Between Shares",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <personSerial>12345</personSerial>\n            <step>\n                <postingRequest label=\"from_share\">\n                    <targetCategory option=\"S\"/>\n                    <targetSerial>27356</targetSerial>\n                    <category option=\"W\"/>\n                    <amount>200.00</amount>\n                    <description>Transfer out</description>\n                </postingRequest>\n            </step>\n            <step>\n                <postingRequest label=\"to_share\">\n                    <targetCategory option=\"S\"/>\n                    <targetSerial>27357</targetSerial>\n                    <category option=\"D\"/>\n                    <amount>200.00</amount>\n                    <description>Transfer in</description>\n                </postingRequest>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Transfer funds between two shares.\n\n**Multi-Step Transaction:**\n1. Withdrawal from source share\n2. Deposit to destination share\n\nBoth steps succeed or both fail (atomic)."
+          },
+          "response": []
+        },
+        {
+          "name": "Loan Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <personSerial>12345</personSerial>\n            <step>\n                <postingRequest label=\"payment\">\n                    <targetCategory option=\"L\"/>\n                    <targetSerial>37798</targetSerial>\n                    <category option=\"P\"/>\n                    <source option=\"S\"/>\n                    <amount>500.00</amount>\n                    <description>Loan payment</description>\n                </postingRequest>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Make payment to loan.\n\n**Payment Processing:**\n- Amount applied to interest first\n- Remainder to principal\n- Updates payment due date\n- Reduces delinquency counters"
+          },
+          "response": []
+        },
+        {
+          "name": "Loan Advance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <personSerial>12345</personSerial>\n            <step>\n                <postingRequest label=\"advance\">\n                    <targetCategory option=\"L\"/>\n                    <targetSerial>37798</targetSerial>\n                    <category option=\"A\"/>\n                    <amount>1000.00</amount>\n                    <description>Loan advance</description>\n                </postingRequest>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Advance funds from loan (LOC).\n\n**Advance Processing:**\n- Increases loan balance\n- Updates last advance date\n- May trigger fees\n- Subject to credit limits"
+          },
+          "response": []
+        },
+        {
+          "name": "Share to Loan Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <personSerial>12345</personSerial>\n            <step>\n                <postingRequest label=\"withdraw\">\n                    <targetCategory option=\"S\"/>\n                    <targetSerial>27356</targetSerial>\n                    <category option=\"W\"/>\n                    <amount>350.00</amount>\n                    <description>Transfer to loan</description>\n                </postingRequest>\n            </step>\n            <step>\n                <postingRequest label=\"payment\">\n                    <targetCategory option=\"L\"/>\n                    <targetSerial>37798</targetSerial>\n                    <category option=\"P\"/>\n                    <amount>350.00</amount>\n                    <description>Payment from share</description>\n                </postingRequest>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Pay loan from share account.\n\n**Multi-Step:**\n1. Withdraw from share\n2. Pay to loan\n\nAtomic transaction."
+          },
+          "response": []
+        }
+      ],
+      "description": "Monetary posting operations (deposits, withdrawals, transfers, payments).\n\n## Posting Request Structure\n\n### Target Categories\n- `S`: Share (savings)\n- `L`: Loan\n- `K`: Checking account\n- `A`: Line of credit\n- `C`: Credit card\n\n### Transaction Categories\n- `D`: Deposit\n- `W`: Withdrawal\n- `P`: Payment (to loan)\n- `A`: Advance (from loan)\n- `R`: Refinance\n- `N`: New loan\n- `C`: Comment only\n\n### Monetary Sources\n- `S`: Cash\n- `K`: Check\n- `C`: Card\n- `A`: ATM\n- `H`: Home banking\n- `M`: Mobile banking\n- `a`: ACH\n- `P`: Payroll\n- `B`: Bill payment"
+    },
+    {
+      "name": "7. Transaction History",
+      "item": [
+        {
+          "name": "Get Transaction History - Basic",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <tranHistory>\n                    <targetCategory option=\"S\"/>\n                    <targetSerial>27356</targetSerial>\n                    <reportOption option=\"ALL\"/>\n                    <formatOption option=\"S\"/>\n                    <orderOption option=\"RT\"/>\n                    <postingDateMinimum>2025-01-01</postingDateMinimum>\n                    <postingDateMaximum>2025-10-28</postingDateMaximum>\n                    <returnLimit>50</returnLimit>\n                </tranHistory>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Get transaction history for share.\n\n**Parameters:**\n- `targetCategory`: S=Share, L=Loan\n- `targetSerial`: Account identifier\n- `reportOption`: ALL transactions\n- `formatOption`: S=Statement format\n- `orderOption`: RT=Reverse chronological\n- Date range filters\n- `returnLimit`: Max transactions"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Transaction History - Monetary Only",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <tranHistory>\n                    <targetCategory option=\"S\"/>\n                    <targetSerial>27356</targetSerial>\n                    <reportOption option=\"MST\"/>\n                    <includeMonetary option=\"Y\"/>\n                    <orderOption option=\"RT\"/>\n                    <postingDateMinimum>2025-10-01</postingDateMinimum>\n                    <returnLimit>100</returnLimit>\n                </tranHistory>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Get only monetary transactions (deposits, withdrawals).\n\n**MST Report Option:**\n- Returns only monetary steps\n- Excludes non-monetary operations\n- Requires target specification\n- Suppresses other account activity"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Transaction History - Paginated",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <tranHistory>\n                    <targetCategory option=\"L\"/>\n                    <targetSerial>37798</targetSerial>\n                    <reportOption option=\"ALL\"/>\n                    <formatOption option=\"S\"/>\n                    <orderOption option=\"T\"/>\n                    <returnLimit>25</returnLimit>\n                    <resumeBookmark>bookmark_from_previous_response</resumeBookmark>\n                </tranHistory>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Get next page of transaction history.\n\n**Pagination:**\n1. First request: omit resumeBookmark\n2. Response includes resumeBookmarkNext\n3. Next request: use resumeBookmarkNext value\n4. Repeat until no more bookmarks\n\n**Best Practice:**\n- Keep other parameters unchanged\n- Only change returnLimit if needed\n- Track bookmarks for resume capability"
+          },
+          "response": []
+        }
+      ],
+      "description": "Query transaction history with filters and pagination.\n\n## Format Options\n\n### Statement Format (S)\nRecommended for third-party integrations:\n- One container per monetary step\n- Simplified structure\n- Matches statement production format\n\n### Transaction Format (T)\nNative database format:\n- One container per compound transaction\n- May have multiple monetary steps\n- Complete technical details\n\n## Report Options\n\n- **ALL**: All transaction types\n- **MST**: Monetary steps only (requires target)\n- **GLR**: General ledger records only\n- **TRN**: Specific transaction by serial\n\n## Filters\n\n- Date ranges (posting date/time)\n- Monetary categories\n- Draft numbers\n- User who posted\n- Include/exclude approved/declined"
+    },
+    {
+      "name": "8. Search Operations",
+      "item": [
+        {
+          "name": "List Available Search Filters",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <searchList>\n                    <tableName>ACCOUNT</tableName>\n                </searchList>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Get list of available search filters for table.\n\n**Returns:**\n- Filter names\n- Required parameters\n- Optional parameters\n- Filter descriptions\n- Parameter data types\n\n**Use this to discover:**\n- What searches are available\n- What parameters each search requires\n- How to construct search requests"
+          },
+          "response": []
+        },
+        {
+          "name": "Search Account by Number",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <search>\n                    <tableName>ACCOUNT</tableName>\n                    <filterName>ACCOUNT_NUMBER</filterName>\n                    <includeSelectColumns option=\"Y\"/>\n                    <includeTotalHitCount option=\"Y\"/>\n                    <parameter>\n                        <parameterName>ACCOUNT_NUMBER</parameterName>\n                        <contents>1234567890</contents>\n                    </parameter>\n                </search>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Search account by account number."
+          },
+          "response": []
+        },
+        {
+          "name": "Search Person by SSN",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <search>\n                    <tableName>PERSON</tableName>\n                    <filterName>PERSON_TAX_ID</filterName>\n                    <includeSelectColumns option=\"Y\"/>\n                    <includeRecordDetail option=\"Y\"/>\n                    <parameter>\n                        <parameterName>TAX_ID</parameterName>\n                        <contents>123456789</contents>\n                    </parameter>\n                </search>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Search person by SSN/TIN.\n\n**With Record Detail:**\n- Returns full person records\n- Not just serials\n- Complete field data\n- Ready for display"
+          },
+          "response": []
+        },
+        {
+          "name": "Search with Column Selection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <search>\n                    <tableName>SHARE</tableName>\n                    <filterName>SHARE_BY_ACCOUNT</filterName>\n                    <includeSelectColumns option=\"Y\"/>\n                    <returnLimit>100</returnLimit>\n                    <parameter>\n                        <parameterName>ACCOUNT_SERIAL</parameterName>\n                        <contents>35985</contents>\n                    </parameter>\n                    <selectColumn>\n                        <columnName>SHARE_SERIAL</columnName>\n                    </selectColumn>\n                    <selectColumn>\n                        <columnName>DESCRIPTION</columnName>\n                    </selectColumn>\n                    <selectColumn>\n                        <columnName>BALANCE</columnName>\n                    </selectColumn>\n                    <selectColumn>\n                        <columnName>AVAILABLE_BALANCE</columnName>\n                    </selectColumn>\n                </search>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Search with specific column selection.\n\n**Column Selection:**\n- Specify exact columns needed\n- Reduces response size\n- Improves performance\n- Returns only requested fields\n\n**Best Practice:**\n- Request only needed columns\n- Especially important for large result sets\n- Reduces network bandwidth"
+          },
+          "response": []
+        }
+      ],
+      "description": "Advanced search with filters and column selection.\n\n## Search Filters\n\nEach table has predefined search filters with specific parameters. Use `searchListContainer` to discover available filters.\n\n## Search Options\n\n### Column Selection\n- `includeSelectColumns`: Return specific fields\n- `includeAllColumns`: Return all fields\n- `includeSelectMetadata`: Field metadata\n\n### Result Options\n- `returnLimit`: Max results\n- `includeTotalHitCount`: Total matches\n- `includeRecordDetail`: Full record details\n\n### Pagination\n- `resumeCounter`: Skip N results\n- For large result sets"
+    },
+    {
+      "name": "9. Card Operations",
+      "item": [
+        {
+          "name": "View Card",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <record>\n                    <tableName>CARD</tableName>\n                    <operation option=\"V\"/>\n                    <targetSerial>5001</targetSerial>\n                    <includeAllColumns option=\"Y\"/>\n                </record>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Retrieve card record details."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Card with Complete Structure",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <recordTree>\n                    <tableName>CARD</tableName>\n                    <targetSerial>5001</targetSerial>\n                    <includeChildren option=\"Y\"/>\n                    <includeDetail option=\"Y\"/>\n                </recordTree>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Get card with all related records.\n\n**Returns:**\n- CARD record\n- CARD_PLASTIC (physical cards)\n- CARD_ACCESS (account access)\n- CARD_LIMIT (spending limits)\n- Complete card configuration"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Card Status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <record>\n                    <tableName>CARD</tableName>\n                    <operation option=\"U\"/>\n                    <targetSerial>5001</targetSerial>\n                    <field>\n                        <columnName>CARD_STATUS</columnName>\n                        <newContents>B</newContents>\n                    </field>\n                </record>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Update card status (block/unblock).\n\n**Status Codes:**\n- N: Normal/Active\n- B: Blocked\n- L: Lost\n- S: Stolen\n- D: Damaged\n- E: Expired"
+          },
+          "response": []
+        },
+        {
+          "name": "View Card Plastic",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <record>\n                    <tableName>CARD_PLASTIC</tableName>\n                    <operation option=\"V\"/>\n                    <targetSerial>6001</targetSerial>\n                    <includeAllColumns option=\"Y\"/>\n                </record>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Get physical card details.\n\n**Returns:**\n- Card number\n- Expiration date\n- CVV (if permitted)\n- Embossing name\n- Issue date"
+          },
+          "response": []
+        }
+      ],
+      "description": "Debit/credit card management and transactions.\n\n## Card Record Structure\n\nComplete card setup requires multiple related records:\n\n### CARD Table\n- Primary card record\n- Card type and status\n- Primary account linkage\n\n### CARD_PLASTIC Table\n- Physical card details\n- Card number\n- Expiration date\n- CVV/Security code\n\n### CARD_ACCESS Table  \n- Share/loan access configuration\n- Which accounts card can access\n- Access priority/order\n\n### CARD_LIMIT Table\n- Spending limits\n- Daily/transaction limits\n- Velocity controls\n\n## Card Status Values\n- Normal/Active\n- Blocked/Frozen\n- Lost/Stolen\n- Damaged\n- Expired"
+    },
+    {
+      "name": "10. Fee Operations",
+      "item": [
+        {
+          "name": "Post Overdraft Fee",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <personSerial>12345</personSerial>\n            <step>\n                <postingRequest label=\"od_fee\">\n                    <targetCategory option=\"S\"/>\n                    <targetSerial>27356</targetSerial>\n                    <category option=\"W\"/>\n                    <source option=\"F\"/>\n                    <amount>35.00</amount>\n                    <description>Overdraft Fee</description>\n                </postingRequest>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Post overdraft fee to share.\n\n**Fee Posting:**\n- Category: W (withdrawal)\n- Source: F (fee)\n- Amount: Fee amount\n- Description: Fee description"
+          },
+          "response": []
+        },
+        {
+          "name": "Post Late Fee to Loan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <personSerial>12345</personSerial>\n            <step>\n                <postingRequest label=\"late_fee\">\n                    <targetCategory option=\"L\"/>\n                    <targetSerial>37798</targetSerial>\n                    <category option=\"W\"/>\n                    <source option=\"F\"/>\n                    <amount>25.00</amount>\n                    <description>Late Payment Fee</description>\n                </postingRequest>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Post late fee to loan.\n\n**Note:**\n- Increases loan balance\n- Tracked separately from principal\n- May accrue interest depending on loan type"
+          },
+          "response": []
+        }
+      ],
+      "description": "Fee assessment and posting operations.\n\n## Fee Types\n\n### Overdraft Fees\n- Courtesy pay usage fees\n- NSF/returned item fees\n- Overdraft transfer fees\n\n### Account Fees\n- Maintenance fees\n- Statement fees\n- Dormancy fees\n\n### Loan Fees\n- Late payment fees\n- Prepayment penalties\n- Document fees\n\n### Transaction Fees\n- ATM fees\n- Wire transfer fees\n- Bill payment fees\n\n## Fee Processing\n\nFees are posted as monetary transactions with:\n- Category: typically 'F' for fee\n- Source: 'F' for fee\n- Target: share or loan to charge\n- Amount: fee amount"
+    },
+    {
+      "name": "11. Advanced Operations",
+      "item": [
+        {
+          "name": "Share File Maintenance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <shareLoanFM>\n                    <tableName>SHARE</tableName>\n                    <targetSerial>27356</targetSerial>\n                    <shareContainer>\n                        <serial>27356</serial>\n                        <typeSerial>10</typeSerial>\n                        <description>Updated Share</description>\n                        <balance>1500.00</balance>\n                        <openDate>2025-01-01</openDate>\n                        <dividendCalculationSerial>5</dividendCalculationSerial>\n                        <minimumBalance>100.00</minimumBalance>\n                    </shareContainer>\n                </shareLoanFM>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "File maintenance for share.\n\n**FM Process:**\n1. Get current state via postingStatus\n2. Modify desired fields in container\n3. Pass complete container to FM\n4. System updates atomically\n\n**Important:**\n- Pass ALL elements from postingStatus\n- Modify only what needs to change\n- System validates and applies changes"
+          },
+          "response": []
+        },
+        {
+          "name": "Share Correction - Balance Adjustment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <shareLoanCorrection>\n                    <operation option=\"POST\"/>\n                    <tableName>SHARE</tableName>\n                    <targetSerial>27356</targetSerial>\n                    <correctionDate>2025-10-28</correctionDate>\n                    <amount>50.00</amount>\n                    <description>Balance correction - posting error</description>\n                </shareLoanCorrection>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Post monetary correction to share.\n\n**Correction Types:**\n- Balance adjustments\n- Interest corrections\n- Fee reversals\n- Error corrections\n\n**Best Practice:**\n- Document reason in description\n- Include reference to original transaction\n- Review before posting"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Record References",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <recordReference>\n                    <tableName>PERSON</tableName>\n                    <targetSerial>12345</targetSerial>\n                    <includeTotalHitCount option=\"Y\"/>\n                </recordReference>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Get all records that reference a person.\n\n**Returns:**\n- Accounts where person is member\n- Applications in progress\n- Beneficiary relationships\n- Co-signer relationships\n- Any cross-references\n\n**Use Case:**\n- Check before deletion\n- Audit relationships\n- Compliance review"
+          },
+          "response": []
+        }
+      ],
+      "description": "File maintenance, corrections, and special operations.\n\n## File Maintenance (FM)\n\nUpdate share/loan with complete snapshot:\n- Preserves transaction history\n- Updates all fields atomically\n- Includes sub-records\n- Safe bulk updates\n\n## Corrections\n\nMonetary corrections to shares/loans:\n- Balance adjustments\n- Interest corrections\n- Fee reversals\n- Historical corrections\n\n## Record Tree Operations\n\nHierarchical record access:\n- Parent-child relationships\n- Complete account structures\n- Recursive retrieval\n\n## Batch Operations\n\nMultiple operations in single transaction:\n- All succeed or all fail\n- Atomic processing\n- Rollback on error"
+    },
+    {
+      "name": "12. Utilities & Metadata",
+      "item": [
+        {
+          "name": "List All Tables",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <tableList>\n                    <includeTableMetadata option=\"Y\"/>\n                    <includeColumnMetadata option=\"N\"/>\n                    <includeAllColumns option=\"N\"/>\n                </tableList>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Get list of all database tables.\n\n**Returns:**\n- Table names\n- Table descriptions\n- Available operations per table\n\n**Warning:**\n- Can be a large response\n- Request column metadata only if needed"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Table with Column Metadata",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/xml; charset=utf-8"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<query xmlns=\"http://www.corelationinc.com/queryLanguage/v1.0\" sessionId=\"{{sessionId}}\">\n    <sequence>\n        <transaction>\n            <step>\n                <record>\n                    <tableName>PERSON</tableName>\n                    <operation option=\"V\"/>\n                    <targetSerial>12345</targetSerial>\n                    <includeTableMetadata option=\"Y\"/>\n                    <includeColumnMetadata option=\"Y\"/>\n                    <includeAllColumns option=\"Y\"/>\n                </record>\n            </step>\n        </transaction>\n    </sequence>\n</query>"
+            },
+            "url": {
+              "raw": "{{baseUrl}}",
+              "host": [
+                "{{baseUrl}}"
+              ]
+            },
+            "description": "Get record with complete metadata.\n\n**Metadata Includes:**\n- Column names\n- Data types\n- Max lengths\n- Required fields\n- Validation rules\n- Field descriptions\n\n**Use For:**\n- Dynamic form generation\n- Validation logic\n- Documentation"
+          },
+          "response": []
+        }
+      ],
+      "description": "System utilities and metadata operations.\n\n## Table Discovery\n\n- List all available tables\n- Get table metadata\n- Discover column information\n\n## Metadata Options\n\n- `includeTableMetadata`: Table descriptions\n- `includeColumnMetadata`: Field details\n- `includeRowDescriptions`: Record descriptions\n\n## Use Cases\n\n- Dynamic UI generation\n- API documentation\n- Schema discovery\n- Validation rules"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://keystone-host:51000"
+    },
+    {
+      "key": "userName",
+      "value": ""
+    },
+    {
+      "key": "password",
+      "value": "your_password"
+    },
+    {
+      "key": "deviceName",
+      "value": "PostmanClient"
+    },
+    {
+      "key": "sessionId",
+      "value": ""
+    },
+    {
+      "key": "port",
+      "value": ""
+    },
+    {
+      "key": "endpoint",
+      "value": ""
+    }
+  ]
+}

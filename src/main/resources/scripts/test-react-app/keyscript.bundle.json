@@ -1,0 +1,8 @@
+{
+  "entry": "src/index.jsx",
+  "outfile": "dist/bundle.js",
+  "format": "iife",
+  "target": "es2020",
+  "minify": false,
+  "jsx": "automatic"
+}

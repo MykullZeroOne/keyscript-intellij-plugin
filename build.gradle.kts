@@ -1,11 +1,11 @@
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "2.1.10"
-    id("org.jetbrains.intellij.platform") version "2.1.0"
+    id("org.jetbrains.kotlin.jvm") version "2.1.0"
+    id("org.jetbrains.intellij.platform") version "2.2.1"
 }
 
-group = "com.revfcu"
-version = "1.0-SNAPSHOT"
+group = "com.keyscript.plugin"
+version = "2.0.0"
 
 repositories {
     mavenCentral()
@@ -15,55 +15,58 @@ repositories {
 }
 
 dependencies {
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.google.code.gson:gson:2.10.1")
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")
-    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
-    testImplementation("org.mockito:mockito-core:5.10.0")
-    testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
-
     intellijPlatform {
-        intellijIdeaCommunity("2024.3.3")
-        instrumentationTools()
-        pluginVerifier()
-        zipSigner()
-        testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
-        // Enable JCEF if needed, although it's usually part of the platform
+        intellijIdeaUltimate("2025.1.3")
+        bundledPlugin("com.intellij.java")
+        bundledPlugin("JavaScript")
+
     }
+
+    // Ktor for embedded proxy server (CIO engine — lightweight, no Netty)
+    val ktorVersion = "2.3.12"
+    implementation("io.ktor:ktor-server-core-jvm:$ktorVersion")
+    implementation("io.ktor:ktor-server-cio-jvm:$ktorVersion")
+    implementation("io.ktor:ktor-server-cors-jvm:$ktorVersion")
+    implementation("io.ktor:ktor-server-content-negotiation-jvm:$ktorVersion")
+    implementation("io.ktor:ktor-serialization-jackson-jvm:$ktorVersion")
+    implementation("io.ktor:ktor-client-core-jvm:$ktorVersion")
+    implementation("io.ktor:ktor-client-cio-jvm:$ktorVersion")
+    implementation("io.ktor:ktor-client-content-negotiation-jvm:$ktorVersion")
+
+    // JSON
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.2")
 }
 
 intellijPlatform {
     pluginConfiguration {
-        name.set("Keyscript IDE")
-    }
+        name = "Keyscript IDE"
+        version = "2.0.0"
 
-    signing {
-        certificateChain.set(System.getenv("CERTIFICATE_CHAIN"))
-        privateKey.set(System.getenv("PRIVATE_KEY"))
-        password.set(System.getenv("PRIVATE_KEY_PASSWORD"))
-    }
-
-    publishing {
-        token.set(System.getenv("PUBLISH_TOKEN"))
+        ideaVersion {
+            sinceBuild = "251"
+            untilBuild = "253.*"
+        }
     }
 }
 
+kotlin {
+    jvmToolchain(21)
+}
+
 tasks {
-    // Set the JVM compatibility versions
-    withType<JavaCompile> {
-        sourceCompatibility = "21"
-        targetCompatibility = "21"
-    }
-    withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-        compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+    wrapper {
+        gradleVersion = "8.11.1"
     }
 
-    patchPluginXml {
-        sinceBuild.set("253")
-        untilBuild.set("253.*")
+    buildSearchableOptions {
+        enabled = false
     }
 
-    test {
-        useJUnitPlatform()
+    runIde {
+        jvmArgs(
+            "-Dsun.java2d.metal=false",
+            "-Xmx2g",
+            "-Xms512m"
+        )
     }
 }

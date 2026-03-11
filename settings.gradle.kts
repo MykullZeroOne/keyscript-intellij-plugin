@@ -1,1 +1,1 @@
-rootProject.name = "keyscript-ide"
+rootProject.name = "keyscript-intellij-plugin"
