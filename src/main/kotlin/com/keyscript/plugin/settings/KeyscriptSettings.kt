@@ -12,6 +12,7 @@ class KeyscriptSettings : PersistentStateComponent<KeyscriptSettings.State> {
 
     data class State(
         var proxyEndpoint: String = "keystonedev.revfcu.com:8443",
+        var keystoneApiUrl: String = "http://keystonedev.revfcu.com:52310",
         var supportedInstances: String = "Test,Development",
         var proxyPort: Int = 3000,
         var servicePort: Int = 3001,
@@ -47,9 +48,19 @@ class KeyscriptSettings : PersistentStateComponent<KeyscriptSettings.State> {
         get() = myState.servicePort
         set(value) { myState.servicePort = value }
 
+    var keystoneApiUrl: String
+        get() = myState.keystoneApiUrl
+        set(value) { myState.keystoneApiUrl = value }
+
     var deviceServiceUrl: String
         get() = myState.deviceServiceUrl
         set(value) { myState.deviceServiceUrl = value }
+
+    /** Build the direct Keystone API URL (e.g. http://keystonedev.revfcu.com:52310) */
+    fun getKeystoneApiBaseUrl(): String {
+        val url = keystoneApiUrl.trimEnd('/')
+        return if (url.startsWith("http")) url else "http://$url"
+    }
 
     /** Build the full proxy URL with protocol */
     fun getProxyUrl(): String {

@@ -41,8 +41,8 @@ class KeystoneApiClient(private val project: Project) {
         val instance = ScriptParameterService.getInstance(project).instance.ifEmpty {
             settings.getDefaultInstance()
         }
-        val baseUrl = settings.getProxyUrl()
-        val url = if (baseUrl.startsWith("http")) "$baseUrl/$instance" else "https://$baseUrl/$instance"
+        val baseUrl = settings.getKeystoneApiBaseUrl()
+        val url = "$baseUrl/$instance"
 
         // Inject sessionId into query.$attr
         val queryNode = query.get("query") as? ObjectNode ?: query

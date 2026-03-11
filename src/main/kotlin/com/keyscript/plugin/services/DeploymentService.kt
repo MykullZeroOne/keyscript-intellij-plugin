@@ -193,15 +193,15 @@ class DeploymentService(private val project: Project) {
     }
 
     /**
-     * Build the direct Keystone URL from settings + instance.
+     * Build the direct Keystone API URL (e.g. http://keystonedev.revfcu.com:52310/Development).
      */
     private fun getKeystoneUrl(): String {
         val settings = KeyscriptSettings.getInstance()
         val instance = ScriptParameterService.getInstance(project).instance.ifEmpty {
             settings.getDefaultInstance()
         }
-        val baseUrl = settings.getProxyUrl()
-        return if (baseUrl.startsWith("http")) "$baseUrl/$instance" else "https://$baseUrl/$instance"
+        val baseUrl = settings.getKeystoneApiBaseUrl()
+        return "$baseUrl/$instance"
     }
 
     /**
