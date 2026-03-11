@@ -1,0 +1,10 @@
+// @keyscript
+// ${NAME} — Keyscript
+
+Ext.onReady(function() {
+    var panel = new Ext.Panel({
+        title: '${NAME}',
+        html: '<h2>Hello from ${NAME}!</h2>',
+        renderTo: Ext.getBody()
+    });
+});

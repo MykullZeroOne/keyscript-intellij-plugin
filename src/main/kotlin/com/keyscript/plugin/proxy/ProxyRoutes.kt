@@ -324,6 +324,8 @@ class ProxyRoutes(
         val path = call.request.path()
         var body = call.receiveText()
 
+        log.info("catchAllPost: path=$path, bodyLength=${body.length}, contentType=${call.request.contentType()}")
+
         // Replace JSESSIONID in body
         body = CookieInjector.replaceInBody(body, proxyService.ssoSessionId)
 
@@ -331,10 +333,10 @@ class ProxyRoutes(
         var seq: String? = null
         if (path.endsWith("/SessionStore")) {
             seq = "//${ideParamsSeq.incrementAndGet()}//"
-            val params = java.net.URLDecoder.decode(body, "UTF-8")
-                .substringAfter("value=", "")
+            val decoded = java.net.URLDecoder.decode(body, "UTF-8")
+            val params = decoded.substringAfter("value=", "").substringBefore("&")
             ideParamsData[seq] = params
-            log.info("SessionStore: stored params under seq=$seq, length=${params.length}, preview=${params.take(200)}")
+            log.info("SessionStore: stored params under seq=$seq, length=${params.length}, bodyPreview=${body.take(200)}")
         }
 
         // Resolve target URL

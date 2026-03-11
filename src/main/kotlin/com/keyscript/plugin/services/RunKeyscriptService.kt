@@ -12,11 +12,8 @@ import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.keyscript.plugin.settings.KeyscriptSettings
 import com.keyscript.plugin.preview.KeyscriptPreviewFileEditor
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.request.forms.submitForm
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.Parameters
+import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URLEncoder
 
 @Service(Service.Level.PROJECT)
@@ -40,29 +37,25 @@ class RunKeyscriptService(private val project: Project) {
 
         return try {
             val jsonParams = jacksonObjectMapper().writeValueAsString(params.getScriptParameters())
-            val client = HttpClient(CIO)
-            try {
-                val storeResponse = client.submitForm(
-                    url = "$proxyBase/SessionStore",
-                    formParameters = Parameters.build {
-                        append("value", jsonParams)
-                    }
-                )
+            val formBody = "value=${URLEncoder.encode(jsonParams, "UTF-8")}&id="
 
-                val storeBody = storeResponse.bodyAsText()
-                log.info("SessionStore response: status=${storeResponse.status}, body=${storeBody.take(300)}")
-                val paramsId = extractJsonField(storeBody, "id")
-                    ?: return RunResult(success = false, error = "Failed to store session parameters")
+            val conn = URI("$proxyBase/SessionStore").toURL().openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            conn.doOutput = true
+            conn.outputStream.use { it.write(formBody.toByteArray()) }
 
-                val runUrl = "$proxyBase/$instance/Keyscript_IDE/RunScript" +
-                    "?scriptPath=${URLEncoder.encode(scriptPath, "UTF-8")}" +
-                    "&scriptParametersId=${URLEncoder.encode(paramsId, "UTF-8")}"
+            val storeBody = conn.inputStream.bufferedReader().readText()
+            log.info("SessionStore response: status=${conn.responseCode}, body=${storeBody.take(300)}")
+            val paramsId = extractJsonField(storeBody, "id")
+                ?: return RunResult(success = false, error = "Failed to store session parameters")
 
-                log.info("RunScript URL: $runUrl")
-                RunResult(success = true, url = runUrl)
-            } finally {
-                client.close()
-            }
+            val runUrl = "$proxyBase/$instance/Keyscript_IDE/RunScript" +
+                "?scriptPath=${URLEncoder.encode(scriptPath, "UTF-8")}" +
+                "&scriptParametersId=${URLEncoder.encode(paramsId, "UTF-8")}"
+
+            log.info("RunScript URL: $runUrl")
+            RunResult(success = true, url = runUrl)
         } catch (e: Exception) {
             RunResult(success = false, error = "Run failed: ${e.message}")
         }

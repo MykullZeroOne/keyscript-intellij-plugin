@@ -1,5 +1,6 @@
 package com.keyscript.plugin.actions
 
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.Project
@@ -21,6 +22,8 @@ import java.awt.Dimension
 import javax.swing.*
 
 class LoginAction : AnAction() {
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val session = SessionService.getInstance(project)

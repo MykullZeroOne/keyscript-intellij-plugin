@@ -1,23 +1,25 @@
 package com.keyscript.plugin.toolwindow
 
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.testFramework.LightVirtualFile
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.content.ContentFactory
-import com.intellij.ui.table.JBTable
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.JBUI
 import com.keyscript.plugin.services.ProxyServerService
 import kotlinx.coroutines.*
 import java.awt.BorderLayout
 import java.awt.FlowLayout
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
 import javax.swing.*
-import javax.swing.table.DefaultTableModel
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 
@@ -63,14 +65,17 @@ class QueryBuilderPanel(private val project: Project) {
         "includeRecordDetail", "includeRowDescriptions",
         "includeTableMetadata", "includeColumnMetadata", "includeAllColumns",
         "category", "targetCategory", "source",
-        "formatOption", "orderOption", "reportOption"
+        "formatOption", "orderOption", "reportOption",
+        "specifiedFeeOption"
     )
 
     /**
      * All known step subelement types from the Corelation query language,
-     * with their default properties and parent constraints.
+     * with their complete properties and parent constraints.
+     * Empty defaults mean the property is optional — only included in XML if a value is provided.
      */
     private val subelementTypes = listOf(
+        // ── Core step subelements ──────────────────────────────
         SubelementType(
             type = "search",
             label = "Search",
@@ -78,9 +83,10 @@ class QueryBuilderPanel(private val project: Project) {
                 "tableName" to "PERSON",
                 "filterName" to "BY_LAST_FIRST_MIDDLE_NAME",
                 "returnLimit" to "20",
-                "includeSelectColumns" to "",
-                "includeTotalHitCount" to "",
-                "contents" to ""
+                "resumeCounter" to "",
+                "includeSelectColumns" to "Y",
+                "includeTotalHitCount" to "Y",
+                "includeRecordDetail" to ""
             )
         ),
         SubelementType(
@@ -90,10 +96,11 @@ class QueryBuilderPanel(private val project: Project) {
                 "tableName" to "",
                 "operation" to "V",
                 "targetSerial" to "",
-                "includeAllColumns" to "",
+                "includeAllColumns" to "Y",
                 "includeTableMetadata" to "",
                 "includeColumnMetadata" to "",
-                "includeRowDescriptions" to ""
+                "includeRowDescriptions" to "",
+                "includeRecordDetail" to ""
             )
         ),
         SubelementType(
@@ -102,15 +109,23 @@ class QueryBuilderPanel(private val project: Project) {
             defaultProperties = linkedMapOf(
                 "tableName" to "",
                 "targetSerial" to "",
-                "includeDetail" to ""
+                "targetCategory" to "",
+                "includeDetail" to "Y",
+                "comment" to "",
+                "specifiedFeeOption" to "",
+                "postingPolicySerial" to ""
             )
         ),
         SubelementType(
             type = "postingRequest",
             label = "Posting Request",
             defaultProperties = linkedMapOf(
-                "description" to "",
-                "source" to ""
+                "targetCategory" to "S",
+                "targetSerial" to "",
+                "category" to "D",
+                "source" to "S",
+                "amount" to "",
+                "description" to ""
             )
         ),
         SubelementType(
@@ -127,6 +142,9 @@ class QueryBuilderPanel(private val project: Project) {
             label = "Table List",
             defaultProperties = linkedMapOf(
                 "tableName" to "",
+                "includeTableMetadata" to "Y",
+                "includeColumnMetadata" to "",
+                "includeAllColumns" to "",
                 "includeChildren" to "",
                 "includeDetail" to ""
             )
@@ -141,6 +159,86 @@ class QueryBuilderPanel(private val project: Project) {
                 "description" to ""
             )
         ),
+        // ── Additional step subelements from the full API ──────
+        SubelementType(
+            type = "tranHistory",
+            label = "Transaction History",
+            defaultProperties = linkedMapOf(
+                "targetCategory" to "S",
+                "targetSerial" to "",
+                "reportOption" to "ALL",
+                "formatOption" to "S",
+                "orderOption" to "RT",
+                "includeMonetary" to "",
+                "postingDateMinimum" to "",
+                "postingDateMaximum" to "",
+                "returnLimit" to "50",
+                "resumeBookmark" to ""
+            )
+        ),
+        SubelementType(
+            type = "postingStatus",
+            label = "Posting Status",
+            defaultProperties = linkedMapOf(
+                "targetCategory" to "S",
+                "targetSerial" to ""
+            )
+        ),
+        SubelementType(
+            type = "recordTree",
+            label = "Record Tree",
+            defaultProperties = linkedMapOf(
+                "tableName" to "",
+                "targetSerial" to "",
+                "includeChildren" to "Y",
+                "includeDetail" to "Y"
+            )
+        ),
+        SubelementType(
+            type = "recordReference",
+            label = "Record Reference",
+            defaultProperties = linkedMapOf(
+                "tableName" to "",
+                "targetSerial" to "",
+                "includeTotalHitCount" to "Y"
+            )
+        ),
+        SubelementType(
+            type = "searchList",
+            label = "Search List",
+            defaultProperties = linkedMapOf(
+                "tableName" to ""
+            )
+        ),
+        SubelementType(
+            type = "loanPayoffRequest",
+            label = "Loan Payoff Request",
+            defaultProperties = linkedMapOf(
+                "targetSerial" to "",
+                "payoffDate" to ""
+            )
+        ),
+        SubelementType(
+            type = "shareLoanFM",
+            label = "Share/Loan FM",
+            defaultProperties = linkedMapOf(
+                "tableName" to "",
+                "targetSerial" to ""
+            )
+        ),
+        SubelementType(
+            type = "shareLoanCorrection",
+            label = "Share/Loan Correction",
+            defaultProperties = linkedMapOf(
+                "operation" to "POST",
+                "tableName" to "",
+                "targetSerial" to "",
+                "correctionDate" to "",
+                "amount" to "",
+                "description" to ""
+            )
+        ),
+        // ── Child-only subelements ─────────────────────────────
         SubelementType(
             type = "field",
             label = "Field",
@@ -155,8 +253,16 @@ class QueryBuilderPanel(private val project: Project) {
             type = "parameter",
             label = "Parameter",
             defaultProperties = linkedMapOf(
-                "columnName" to "",
+                "parameterName" to "",
                 "contents" to ""
+            ),
+            parentConstraint = "search"
+        ),
+        SubelementType(
+            type = "selectColumn",
+            label = "Select Column",
+            defaultProperties = linkedMapOf(
+                "columnName" to ""
             ),
             parentConstraint = "search"
         )
@@ -179,8 +285,20 @@ class QueryBuilderPanel(private val project: Project) {
         font = java.awt.Font("Monospaced", java.awt.Font.PLAIN, 12)
     }
 
+    // JSON preview
+    private val jsonPreview = JBTextArea().apply {
+        isEditable = false
+        font = java.awt.Font("Monospaced", java.awt.Font.PLAIN, 12)
+    }
+
     // Results
     private val resultArea = JBTextArea().apply {
+        isEditable = false
+        font = java.awt.Font("Monospaced", java.awt.Font.PLAIN, 12)
+    }
+
+    // JS generation
+    private val jsArea = JBTextArea().apply {
         isEditable = false
         font = java.awt.Font("Monospaced", java.awt.Font.PLAIN, 12)
     }
@@ -219,8 +337,13 @@ class QueryBuilderPanel(private val project: Project) {
             add(JButton("Post").apply {
                 addActionListener { executeQuery(verify = false) }
             })
-            add(JButton("Generate JS").apply {
-                addActionListener { generateJavaScript() }
+            add(Box.createHorizontalStrut(16))
+            add(JButton("Copy XML").apply {
+                addActionListener { copyToClipboard(buildXml()) }
+            })
+            add(JButton("HTTP Client").apply {
+                toolTipText = "Open query as an IntelliJ HTTP request file"
+                addActionListener { openInHttpClient() }
             })
         }
 
@@ -234,12 +357,16 @@ class QueryBuilderPanel(private val project: Project) {
         // Tabs
         tabbedPane.addTab("Tree", treePropsSplit)
         tabbedPane.addTab("XML Preview", JBScrollPane(xmlPreview))
+        tabbedPane.addTab("JSON Preview", JBScrollPane(jsonPreview))
+        tabbedPane.addTab("JavaScript", JBScrollPane(jsArea))
         tabbedPane.addTab("Results", JBScrollPane(resultArea))
 
-        // Update XML preview when tab changes
+        // Update preview when tab changes
         tabbedPane.addChangeListener {
-            if (tabbedPane.selectedIndex == 1) {
-                xmlPreview.text = buildXml()
+            when (tabbedPane.selectedIndex) {
+                1 -> xmlPreview.text = buildXml()
+                2 -> jsonPreview.text = buildJson()
+                3 -> jsArea.text = buildJavaScript()
             }
         }
 
@@ -256,8 +383,11 @@ class QueryBuilderPanel(private val project: Project) {
         val label: String,
         val properties: MutableMap<String, String> = mutableMapOf()
     ) {
-        override fun toString() = if (properties.isEmpty()) label
-        else "$label (${properties.entries.joinToString(", ") { "${it.key}=${it.value}" }})"
+        override fun toString(): String {
+            val nonEmpty = properties.entries.filter { it.value.isNotEmpty() }
+            return if (nonEmpty.isEmpty()) label
+            else "$label (${nonEmpty.joinToString(", ") { "${it.key}=${it.value}" }})"
+        }
     }
 
     /**
@@ -295,24 +425,15 @@ class QueryBuilderPanel(private val project: Project) {
         val selected = tree.lastSelectedPathComponent as? DefaultMutableTreeNode
         val selectedQn = selected?.userObject as? QueryNode
 
-        // Determine the effective parent element type
         val parentElement = selectedQn?.element
 
         return subelementTypes.filter { subType ->
             when (subType.parentConstraint) {
                 "step" -> {
-                    // Step-level subelements: addable when a step node is selected,
-                    // or when any node is selected and we can find a step node
                     parentElement == "step" || (parentElement != "search" && parentElement != "record" && findStepNode() != null)
                 }
-                "record" -> {
-                    // Field is only addable under a record node
-                    parentElement == "record"
-                }
-                "search" -> {
-                    // Parameter is only addable under a search node
-                    parentElement == "search"
-                }
+                "record" -> parentElement == "record"
+                "search" -> parentElement == "search"
                 else -> false
             }
         }
@@ -325,7 +446,6 @@ class QueryBuilderPanel(private val project: Project) {
         val selected = tree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
         val selectedQn = selected.userObject as? QueryNode ?: return
 
-        // Determine the target parent node based on the constraint
         val targetParent: DefaultMutableTreeNode = when (subType.parentConstraint) {
             "step" -> {
                 if (selectedQn.element == "step") selected
@@ -381,23 +501,47 @@ class QueryBuilderPanel(private val project: Project) {
         val selected = tree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
         val qn = selected.userObject as? QueryNode ?: return
 
-        propsPanel.add(JLabel("Element: ${qn.element}"))
+        propsPanel.add(JLabel("Element: ${qn.element}").apply {
+            font = font.deriveFont(java.awt.Font.BOLD)
+        })
+        propsPanel.add(Box.createVerticalStrut(4))
+        propsPanel.add(JLabel("<html><i>Empty fields are omitted from output.</i></html>").apply {
+            foreground = com.intellij.util.ui.UIUtil.getContextHelpForeground()
+            font = font.deriveFont(font.size2D - 1f)
+        })
         propsPanel.add(Box.createVerticalStrut(8))
 
         qn.properties.forEach { (key, value) ->
-            val label = JLabel("$key:")
-            val field = JBTextField(value)
-            field.addActionListener {
-                qn.properties[key] = field.text
-                treeModel.nodeChanged(selected)
-            }
-            // Also update on focus lost
-            field.addFocusListener(object : java.awt.event.FocusAdapter() {
-                override fun focusLost(e: java.awt.event.FocusEvent?) {
-                    qn.properties[key] = field.text
+            val isOption = key in optionTypeProperties
+            val label = JLabel(if (isOption) "$key (option):" else "$key:")
+
+            val field: JComponent
+            // Use dropdown for well-known option values
+            val knownOptions = getKnownOptions(key)
+            if (knownOptions != null) {
+                val combo = JComboBox(arrayOf("") + knownOptions)
+                combo.selectedItem = value
+                combo.isEditable = true
+                combo.addActionListener {
+                    qn.properties[key] = combo.selectedItem?.toString() ?: ""
                     treeModel.nodeChanged(selected)
                 }
-            })
+                field = combo
+            } else {
+                val tf = JBTextField(value)
+                tf.addActionListener {
+                    qn.properties[key] = tf.text
+                    treeModel.nodeChanged(selected)
+                }
+                tf.addFocusListener(object : java.awt.event.FocusAdapter() {
+                    override fun focusLost(e: java.awt.event.FocusEvent?) {
+                        qn.properties[key] = tf.text
+                        treeModel.nodeChanged(selected)
+                    }
+                })
+                field = tf
+            }
+
             propsPanel.add(label)
             propsPanel.add(field)
             propsPanel.add(Box.createVerticalStrut(4))
@@ -406,6 +550,27 @@ class QueryBuilderPanel(private val project: Project) {
         propsPanel.revalidate()
         propsPanel.repaint()
     }
+
+    /**
+     * Returns known option values for well-known properties, or null if free-text.
+     */
+    private fun getKnownOptions(key: String): Array<String>? = when (key) {
+        "operation" -> arrayOf("V", "U", "I", "D", "M", "POST")
+        "category" -> arrayOf("D", "W", "P", "A", "R", "N", "C")
+        "targetCategory" -> arrayOf("S", "L", "K", "A", "C")
+        "source" -> arrayOf("S", "K", "C", "A", "H", "M", "a", "P", "B", "F")
+        "includeSelectColumns", "includeTotalHitCount", "includeChildren",
+        "includeDetail", "includeMonetary", "includeRecordDetail",
+        "includeRowDescriptions", "includeTableMetadata",
+        "includeColumnMetadata", "includeAllColumns" -> arrayOf("Y", "N")
+        "specifiedFeeOption" -> arrayOf("Y", "N")
+        "reportOption" -> arrayOf("ALL", "MST", "GLR", "TRN")
+        "formatOption" -> arrayOf("S", "T")
+        "orderOption" -> arrayOf("T", "RT")
+        else -> null
+    }
+
+    // ── XML Generation ─────────────────────────────────────────
 
     private fun buildXml(): String {
         val sb = StringBuilder()
@@ -424,16 +589,11 @@ class QueryBuilderPanel(private val project: Project) {
             sb.appendLine("${pad}<v1:${qn.element}>")
         }
 
-        // Render properties as child elements
+        // Render properties as child elements — skip empty values
         qn.properties.forEach { (key, value) ->
             if (value.isNotEmpty()) {
                 if (key in optionTypeProperties) {
                     sb.appendLine("""${pad}  <v1:$key option="${escapeXml(value)}"/>""")
-                } else if (key == "contents" && qn.element == "search") {
-                    // Legacy search contents rendering as inline parameter
-                    sb.appendLine("${pad}  <v1:parameter>")
-                    sb.appendLine("${pad}    <v1:contents>${escapeXml(value)}</v1:contents>")
-                    sb.appendLine("${pad}  </v1:parameter>")
                 } else {
                     sb.appendLine("${pad}  <v1:$key>${escapeXml(value)}</v1:$key>")
                 }
@@ -448,66 +608,128 @@ class QueryBuilderPanel(private val project: Project) {
         sb.appendLine("${pad}</v1:${qn.element}>")
     }
 
-    private fun executeQuery(verify: Boolean) {
-        val xml = buildXml()
+    // ── JSON Generation ────────────────────────────────────────
 
-        // Inject postingMode for verify — uses option attribute syntax
-        val finalXml = if (verify) {
-            xml.replace("<v1:transaction>", """<v1:transaction>
-      <v1:postingMode option="V"/>""")
-        } else xml
+    private fun buildJson(): String {
+        val sb = StringBuilder()
+        buildNodeJson(rootNode, sb, 0)
+        return sb.toString()
+    }
 
-        statusLabel.text = if (verify) "Verifying..." else "Posting..."
+    private fun buildNodeJson(node: DefaultMutableTreeNode, sb: StringBuilder, indent: Int) {
+        val qn = node.userObject as? QueryNode ?: return
+        val pad = "  ".repeat(indent)
+        val innerPad = "  ".repeat(indent + 1)
 
-        scope.launch {
-            try {
-                val proxyBase = ProxyServerService.getInstance(project).getProxyBaseUrl()
-                val response = postXml("$proxyBase/DirectXMLPostJSON", finalXml)
+        sb.appendLine("${pad}{")
+        sb.appendLine("${innerPad}\"${qn.element}\": {")
 
-                SwingUtilities.invokeLater {
-                    resultArea.text = formatJson(response)
-                    tabbedPane.selectedIndex = 2 // Switch to Results tab
+        val entries = mutableListOf<String>()
 
-                    val hasError = response.contains("\"exception\"") || response.contains("\"error\"")
-                    val result = if (verify) "Verification" else "Post"
-                    statusLabel.text = if (hasError) "$result completed with errors" else "$result successful"
-                }
-            } catch (e: Exception) {
-                log.warn("Query execution failed", e)
-                SwingUtilities.invokeLater {
-                    resultArea.text = "Error: ${e.message}"
-                    tabbedPane.selectedIndex = 2
-                    statusLabel.text = "Query failed: ${e.message}"
+        // Properties — skip empty values
+        qn.properties.forEach { (key, value) ->
+            if (value.isNotEmpty()) {
+                if (key in optionTypeProperties) {
+                    entries.add("${innerPad}  \"$key\": { \"option\": \"${escapeJson(value)}\" }")
+                } else {
+                    entries.add("${innerPad}  \"$key\": \"${escapeJson(value)}\"")
                 }
             }
         }
+
+        // Group children by element type for JSON arrays
+        val childGroups = linkedMapOf<String, MutableList<DefaultMutableTreeNode>>()
+        for (i in 0 until node.childCount) {
+            val child = node.getChildAt(i) as DefaultMutableTreeNode
+            val childQn = child.userObject as? QueryNode ?: continue
+            childGroups.getOrPut(childQn.element) { mutableListOf() }.add(child)
+        }
+
+        childGroups.forEach { (elementType, children) ->
+            val childSb = StringBuilder()
+            if (children.size == 1) {
+                buildNodeJsonInline(children[0], childSb, indent + 2)
+                entries.add("${innerPad}  \"$elementType\": ${childSb.toString().trim()}")
+            } else {
+                val items = children.map { child ->
+                    val itemSb = StringBuilder()
+                    buildNodeJsonInline(child, itemSb, indent + 3)
+                    itemSb.toString().trim()
+                }
+                entries.add("${innerPad}  \"$elementType\": [\n${items.joinToString(",\n") { "${innerPad}    $it" }}\n${innerPad}  ]")
+            }
+        }
+
+        sb.appendLine(entries.joinToString(",\n"))
+        sb.appendLine("${innerPad}}")
+        sb.append("${pad}}")
     }
 
-    private fun generateJavaScript() {
-        // Build JS code that constructs the same query using CR.XML API
+    private fun buildNodeJsonInline(node: DefaultMutableTreeNode, sb: StringBuilder, indent: Int) {
+        val qn = node.userObject as? QueryNode ?: return
+        val pad = "  ".repeat(indent)
+
+        val entries = mutableListOf<String>()
+
+        qn.properties.forEach { (key, value) ->
+            if (value.isNotEmpty()) {
+                if (key in optionTypeProperties) {
+                    entries.add("\"$key\": { \"option\": \"${escapeJson(value)}\" }")
+                } else {
+                    entries.add("\"$key\": \"${escapeJson(value)}\"")
+                }
+            }
+        }
+
+        // Children
+        val childGroups = linkedMapOf<String, MutableList<DefaultMutableTreeNode>>()
+        for (i in 0 until node.childCount) {
+            val child = node.getChildAt(i) as DefaultMutableTreeNode
+            val childQn = child.userObject as? QueryNode ?: continue
+            childGroups.getOrPut(childQn.element) { mutableListOf() }.add(child)
+        }
+
+        childGroups.forEach { (elementType, children) ->
+            if (children.size == 1) {
+                val childSb = StringBuilder()
+                buildNodeJsonInline(children[0], childSb, indent + 1)
+                entries.add("\"$elementType\": ${childSb.toString().trim()}")
+            } else {
+                val items = children.map { child ->
+                    val itemSb = StringBuilder()
+                    buildNodeJsonInline(child, itemSb, indent + 1)
+                    itemSb.toString().trim()
+                }
+                entries.add("\"$elementType\": [${items.joinToString(", ")}]")
+            }
+        }
+
+        sb.append("${pad}{ ${entries.joinToString(", ")} }")
+    }
+
+    // ── JavaScript Generation ──────────────────────────────────
+
+    private fun buildJavaScript(): String {
         val sb = StringBuilder()
         sb.appendLine("// Generated Keyscript query")
         sb.appendLine("(function() {")
-        sb.appendLine("  var xml = CR.XML.createDocument('query', '$ns');")
-        sb.appendLine("  var seq = CR.XML.addElement(xml.documentElement, 'sequence');")
-        sb.appendLine("  var txn = CR.XML.addElement(seq, 'transaction');")
-        sb.appendLine("  var step = CR.XML.addElement(txn, 'step');")
+        sb.appendLine("  var xml = new CR.XML();")
+        sb.appendLine("  var root = xml.getRootElement();")
+        sb.appendLine("  var seq = xml.addContainer(root, 'sequence');")
+        sb.appendLine("  var txn = xml.addContainer(seq, 'transaction');")
+        sb.appendLine("  var step = xml.addContainer(txn, 'step');")
 
-        // Find operation nodes under step and generate JS recursively
         val stepNode = findStepNode()
         if (stepNode != null) {
             generateJsForChildren(stepNode, "step", sb, "  ")
         }
 
         sb.appendLine("")
-        sb.appendLine("  var xmlStr = CR.XML.serialize(xml);")
-        sb.appendLine("  CR.Ajax.request({")
+        sb.appendLine("  CR.Core.ajaxRequest({")
         sb.appendLine("    url: 'DirectXMLPostJSON',")
-        sb.appendLine("    method: 'POST',")
-        sb.appendLine("    headers: {'Content-Type': 'text/xml'},")
-        sb.appendLine("    xmlData: xmlStr,")
+        sb.appendLine("    xmlData: xml.getXMLDocument(),")
         sb.appendLine("    success: function(response) {")
-        sb.appendLine("      var data = JSON.parse(response.responseText);")
+        sb.appendLine("      var data = CR.JSON.parse(response.responseText);")
         sb.appendLine("      console.log('Query result:', data);")
         sb.appendLine("    },")
         sb.appendLine("    failure: function(response) {")
@@ -516,9 +738,7 @@ class QueryBuilderPanel(private val project: Project) {
         sb.appendLine("  });")
         sb.appendLine("})();")
 
-        resultArea.text = sb.toString()
-        tabbedPane.selectedIndex = 2
-        statusLabel.text = "JavaScript generated — copy to your script"
+        return sb.toString()
     }
 
     /**
@@ -535,17 +755,13 @@ class QueryBuilderPanel(private val project: Project) {
             val op = childTreeNode.userObject as? QueryNode ?: continue
 
             val varName = "${op.element}${i}"
-            sb.appendLine("${indent}var $varName = CR.XML.addElement($parentVarName, '${op.element}');")
+            sb.appendLine("${indent}var $varName = xml.addContainer($parentVarName, '${op.element}');")
             op.properties.forEach { (key, value) ->
                 if (value.isNotEmpty()) {
-                    if (key == "contents" && op.element == "search") {
-                        sb.appendLine("${indent}var param = CR.XML.addElement($varName, 'parameter');")
-                        sb.appendLine("${indent}CR.XML.addTextElement(param, 'contents', '${escapeJs(value)}');")
-                    } else if (key in optionTypeProperties) {
-                        sb.appendLine("${indent}var ${key}El = CR.XML.addElement($varName, '$key');")
-                        sb.appendLine("${indent}${key}El.setAttribute('option', '${escapeJs(value)}');")
+                    if (key in optionTypeProperties) {
+                        sb.appendLine("${indent}xml.addOption($varName, '$key', '${escapeJs(value)}');")
                     } else {
-                        sb.appendLine("${indent}CR.XML.addTextElement($varName, '$key', '${escapeJs(value)}');")
+                        sb.appendLine("${indent}xml.addText($varName, '$key', '${escapeJs(value)}');")
                     }
                 }
             }
@@ -557,7 +773,73 @@ class QueryBuilderPanel(private val project: Project) {
         }
     }
 
-    // --- Helpers ---
+    // ── Query Execution ────────────────────────────────────────
+
+    private fun executeQuery(verify: Boolean) {
+        val xml = buildXml()
+
+        val finalXml = if (verify) {
+            xml.replace("<v1:transaction>", """<v1:transaction>
+      <v1:postingMode option="V"/>""")
+        } else xml
+
+        statusLabel.text = if (verify) "Verifying..." else "Posting..."
+
+        scope.launch {
+            try {
+                val proxyBase = ProxyServerService.getInstance(project).getProxyBaseUrl()
+                val response = postXml("$proxyBase/DirectXMLPostJSON", finalXml)
+
+                SwingUtilities.invokeLater {
+                    resultArea.text = formatJson(response)
+                    tabbedPane.selectedIndex = 4 // Results tab
+
+                    val hasError = response.contains("\"exception\"") || response.contains("\"error\"")
+                    val result = if (verify) "Verification" else "Post"
+                    statusLabel.text = if (hasError) "$result completed with errors" else "$result successful"
+                }
+            } catch (e: Exception) {
+                log.warn("Query execution failed", e)
+                SwingUtilities.invokeLater {
+                    resultArea.text = "Error: ${e.message}"
+                    tabbedPane.selectedIndex = 4
+                    statusLabel.text = "Query failed: ${e.message}"
+                }
+            }
+        }
+    }
+
+    // ── HTTP Client Integration ────────────────────────────────
+
+    private fun openInHttpClient() {
+        val xml = buildXml()
+        val proxyBase = try {
+            ProxyServerService.getInstance(project).getProxyBaseUrl()
+        } catch (_: Exception) {
+            "http://localhost:3000"
+        }
+
+        val httpContent = buildString {
+            appendLine("### Keyscript Query — Generated by Query Builder")
+            appendLine("POST $proxyBase/DirectXMLPostJSON")
+            appendLine("Content-Type: text/xml")
+            appendLine()
+            append(xml)
+        }
+
+        SwingUtilities.invokeLater {
+            val file = LightVirtualFile("keyscript-query.http", httpContent)
+            FileEditorManager.getInstance(project).openFile(file, true)
+            statusLabel.text = "Opened in HTTP Client"
+        }
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────
+
+    private fun copyToClipboard(text: String) {
+        Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
+        statusLabel.text = "Copied to clipboard"
+    }
 
     private fun postXml(url: String, xml: String): String {
         val conn = java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
@@ -579,8 +861,12 @@ class QueryBuilderPanel(private val project: Project) {
         .replace("'", "\\'")
         .replace("\n", "\\n")
 
+    private fun escapeJson(s: String): String = s
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+
     private fun formatJson(json: String): String {
-        // Simple JSON formatter — add newlines after { and , for readability
         val sb = StringBuilder()
         var indent = 0
         var inString = false

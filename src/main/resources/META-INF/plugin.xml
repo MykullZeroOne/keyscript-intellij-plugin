@@ -33,6 +33,9 @@
         <projectService serviceImplementation="com.keyscript.plugin.services.PreviewContentService"/>
         <projectService serviceImplementation="com.keyscript.plugin.services.WorkspaceUiService"/>
         <projectService serviceImplementation="com.keyscript.plugin.services.KeyscriptProjectDetector"/>
+        <projectService serviceImplementation="com.keyscript.plugin.services.DeploymentService"/>
+        <projectService serviceImplementation="com.keyscript.plugin.services.BundleService"/>
+        <projectService serviceImplementation="com.keyscript.plugin.services.KeystoneApiClient"/>
 
         <!-- Startup -->
         <postStartupActivity implementation="com.keyscript.plugin.services.KeyscriptProjectService$StartupActivity"/>
@@ -76,11 +79,23 @@
                        id="KEYSCRIPT_MODULE"
                        order="first"/>
 
+        <!-- File Templates -->
+        <internalFileTemplate name="Keyscript File"/>
+
         <!-- Notifications -->
         <notificationGroup id="Keyscript" displayType="BALLOON"/>
     </extensions>
 
     <actions>
+        <!-- New File action -->
+        <action id="Keyscript.NewFile"
+                class="com.keyscript.plugin.actions.NewKeyscriptFileAction"
+                text="Keyscript File"
+                description="Create a new Keyscript file"
+                icon="AllIcons.General.Web">
+            <add-to-group group-id="NewGroup" anchor="before" relative-to-action="NewFile"/>
+        </action>
+
         <group id="KeyscriptMenu" text="Keyscript" popup="true">
             <add-to-group group-id="MainMenu" anchor="last"/>
             <action id="Keyscript.Login"
@@ -100,6 +115,19 @@
                     class="com.keyscript.plugin.actions.OpenInChromeAction"
                     text="Open Preview in Chrome"
                     description="Open the current script preview in Chrome browser"/>
+            <separator/>
+            <action id="Keyscript.Deploy"
+                    class="com.keyscript.plugin.actions.DeployAction"
+                    text="Deploy Script..."
+                    description="Deploy the current script to a Keystone environment"
+                    icon="AllIcons.Actions.Upload">
+                <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            </action>
+            <action id="Keyscript.Bundle"
+                    class="com.keyscript.plugin.actions.BundleAction"
+                    text="Bundle (esbuild)"
+                    description="Bundle React/Node project using esbuild"
+                    icon="AllIcons.Actions.Compile"/>
         </group>
     </actions>
 </idea-plugin>
