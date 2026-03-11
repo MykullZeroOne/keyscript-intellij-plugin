@@ -82,7 +82,8 @@ Save to `{@artifacts_path}/plan.md`.
 - Search for EDT violations in network calls (`KeybridgeClient`, `KeystoneClient`).
 - Analyze background task usage and coroutine implementation.
 
-### [ ] Step: Marketplace Readiness and Plugin Verifier Audit
+### [x] Step: Marketplace Readiness and Plugin Verifier Audit
+<!-- chat-id: e21f22ed-1154-453a-a30f-84fc83edcf0c -->
 - Check compatibility between `build.gradle.kts` and `plugin.xml` (Build 243 vs 253).
 - Review plugin metadata for Marketplace standards.
 
