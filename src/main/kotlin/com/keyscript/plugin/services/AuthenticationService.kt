@@ -20,8 +20,10 @@ import java.net.URI
 import java.net.URLEncoder
 
 /**
- * Handles authentication with Keystone: password login via UserLogin endpoint
- * and SSO session injection into the proxy.
+ * Handles authentication with Keystone.
+ * - UI login goes through the local proxy (needed for preview/run)
+ * - Also performs a JSON "logon" API call directly to Keystone to get
+ *   an API session ID for deploy/search operations
  */
 @Service(Service.Level.PROJECT)
 class AuthenticationService(private val project: Project) {
@@ -47,9 +49,8 @@ class AuthenticationService(private val project: Project) {
     }
 
     /**
-     * Login to Keystone via the proxy's /UserLogin endpoint.
-     * Posts loginUsername/loginPassword/loginDeviceIdentifier and extracts JSESSIONID.
-     * Returns a LoginResult with success/failure info.
+     * Login to Keystone via the proxy's /UserLogin endpoint (for preview/run),
+     * then also obtain a direct API session via JSON logon (for deploy/search).
      */
     suspend fun login(
         username: String,
@@ -71,7 +72,7 @@ class AuthenticationService(private val project: Project) {
                 }
             }
 
-            // 3. POST /UserLogin with correct Keystone field names
+            // 3. POST /UserLogin through proxy for preview/run session
             val body = listOf(
                 "loginUsername" to username,
                 "loginPassword" to password,
@@ -104,8 +105,6 @@ class AuthenticationService(private val project: Project) {
 
                 // Tell proxy about the session
                 ProxyServerService.getInstance(project).setSsoSession(jsessionId)
-
-                // Also POST to /api/sso-session so proxy routes use it
                 try {
                     httpClient.post("$proxyBase/api/sso-session") {
                         contentType(ContentType.Application.Json)
@@ -113,13 +112,12 @@ class AuthenticationService(private val project: Project) {
                     }
                 } catch (_: Exception) {}
 
-                // Login directly to Keystone API for deploy/search operations
-                loginDirectToKeystoneApi(username, password, instance)
+                // 5. Obtain API session via JSON logon for deploy/search
+                obtainApiSession(username, password, instance, deviceId)
 
                 notify("Logged in as $userName ($instance)", NotificationType.INFORMATION)
                 LoginResult(true, userName)
             } else {
-                // Extract error message
                 val exception = extractJsonField(responseBody, "exception")
                 val errorMsg = exception ?: "Login failed — no JSESSIONID in response"
                 notify(errorMsg, NotificationType.ERROR)
@@ -134,6 +132,56 @@ class AuthenticationService(private val project: Project) {
     }
 
     /**
+     * Send a JSON "logon" query directly to the Keystone API to obtain
+     * a session ID that works for direct API calls (deploy, search).
+     *
+     * Uses the logon block instead of $attr:
+     * { "query": { "logon": { "userName": "...", "deviceName": "...", "password": "..." } } }
+     */
+    private fun obtainApiSession(username: String, password: String, instance: String, deviceId: String) {
+        try {
+            val settings = KeyscriptSettings.getInstance()
+            val apiBase = settings.getKeystoneApiBaseUrl()
+            val url = "$apiBase/$instance"
+
+            val deviceName = deviceId.ifEmpty { "KeyscriptIDE" }
+            val logonJson = """{"query":{"logon":{"userName":"$username","deviceName":"$deviceName","password":"${escapeJson(password)}"}}}"""
+
+            log.info("Obtaining API session via logon: $url")
+
+            val conn = URI(url).toURL().openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 15_000
+            conn.doOutput = true
+            conn.outputStream.use { it.write(logonJson.toByteArray()) }
+
+            val status = conn.responseCode
+            val responseBody = try {
+                conn.inputStream.bufferedReader().readText()
+            } catch (_: Exception) {
+                conn.errorStream?.bufferedReader()?.readText() ?: ""
+            }
+
+            log.info("API logon response: status=$status, body=${responseBody.take(300)}")
+
+            // Extract sessionId from the response
+            val apiSessionId = extractJsonField(responseBody, "sessionId")
+                ?: extractJsonField(responseBody, "JSESSIONID")
+
+            if (apiSessionId != null) {
+                SessionService.getInstance(project).setKeystoneApiSession(apiSessionId)
+                log.info("API session obtained via logon: ${apiSessionId.take(8)}...")
+            } else {
+                log.warn("API logon did not return sessionId. Response: ${responseBody.take(300)}")
+            }
+        } catch (e: Exception) {
+            log.warn("API logon failed (deploy may not work): ${e.message}")
+        }
+    }
+
+    /**
      * Attempt Kerberos SSO login via GET /UserLogin through the proxy.
      */
     suspend fun attemptSsoLogin(): LoginResult = withContext(Dispatchers.IO) {
@@ -142,10 +190,8 @@ class AuthenticationService(private val project: Project) {
             val proxyBase = ProxyServerService.getInstance(project).getProxyBaseUrl()
             val inst = settings.getDefaultInstance()
 
-            // Set instance on proxy first
             httpClient.get("$proxyBase/$inst")
 
-            // Attempt SSO via GET /UserLogin (Kerberos negotiation)
             val response = httpClient.get("$proxyBase/UserLogin")
             val body = response.bodyAsText()
             val jsessionId = extractJsonField(body, "JSESSIONID")
@@ -158,13 +204,18 @@ class AuthenticationService(private val project: Project) {
                 session.instance = inst
 
                 ProxyServerService.getInstance(project).setSsoSession(jsessionId)
-
                 try {
                     httpClient.post("$proxyBase/api/sso-session") {
                         contentType(ContentType.Application.Json)
                         setBody("""{"jsessionId":"$jsessionId"}""")
                     }
                 } catch (_: Exception) {}
+
+                // Also obtain API session for SSO users
+                val creds = session.loadCredentials()
+                if (creds != null) {
+                    obtainApiSession(creds.first, creds.second, inst, "")
+                }
 
                 notify("SSO login successful: $userName ($inst)", NotificationType.INFORMATION)
                 LoginResult(true, userName)
@@ -197,53 +248,8 @@ class AuthenticationService(private val project: Project) {
         return result
     }
 
-    /**
-     * Login directly to Keystone API (e.g. http://keystonedev.revfcu.com:52310)
-     * to get a session ID valid for direct API calls (deploy, search).
-     */
-    private fun loginDirectToKeystoneApi(username: String, password: String, instance: String) {
-        try {
-            val settings = KeyscriptSettings.getInstance()
-            val apiBase = settings.getKeystoneApiBaseUrl()
-            val url = "$apiBase/$instance/UserLogin"
-
-            val formBody = listOf(
-                "loginUsername" to username,
-                "loginPassword" to password,
-                "loginDeviceIdentifier" to "",
-                "loginDeviceInsertOption" to "N"
-            ).joinToString("&") { (k, v) ->
-                "${URLEncoder.encode(k, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}"
-            }
-
-            val conn = URI(url).toURL().openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-            conn.connectTimeout = 15_000
-            conn.readTimeout = 15_000
-            conn.doOutput = true
-            conn.outputStream.use { it.write(formBody.toByteArray()) }
-
-            val status = conn.responseCode
-            val body = try {
-                conn.inputStream.bufferedReader().readText()
-            } catch (_: Exception) {
-                conn.errorStream?.bufferedReader()?.readText() ?: ""
-            }
-
-            log.info("Direct Keystone login: status=$status, body=${body.take(200)}")
-
-            val apiSessionId = extractJsonField(body, "JSESSIONID")
-            if (apiSessionId != null) {
-                SessionService.getInstance(project).setKeystoneApiSession(apiSessionId)
-                log.info("Direct Keystone API session obtained: ${apiSessionId.take(8)}...")
-            } else {
-                log.warn("Direct Keystone login did not return JSESSIONID")
-            }
-        } catch (e: Exception) {
-            log.warn("Direct Keystone API login failed (non-fatal): ${e.message}")
-        }
-    }
+    private fun escapeJson(s: String): String =
+        s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
 
     private fun notify(message: String, type: NotificationType) {
         NotificationGroupManager.getInstance()
