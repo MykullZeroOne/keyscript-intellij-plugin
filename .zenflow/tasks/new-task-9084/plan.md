@@ -42,7 +42,8 @@ Save to `{@artifacts_path}/spec.md` with:
 - Delivery phases (incremental, testable milestones)
 - Verification approach using project lint/test commands
 
-### [ ] Step: Planning
+### [x] Step: Planning
+<!-- chat-id: ad25be48-6fe8-4d33-9480-996a29c45017 -->
 
 Create a detailed implementation plan based on `{@artifacts_path}/spec.md`.
 
@@ -58,8 +59,29 @@ If the feature is trivial and doesn't warrant full specification, update this wo
 
 Save to `{@artifacts_path}/plan.md`.
 
-### [ ] Step: Implementation
+### [ ] Step: Architecture and Plugin Structure Review
+- Review `plugin.xml` for extensions, actions, and dependencies.
+- Analyze service scoping (App vs Project) for `AuthenticationManager`, `ScriptOptionsService`, `KeyscriptSettingsService`.
+- Check lifecycle management and `Disposable` usage.
 
-This step should be replaced with detailed implementation tasks from the Planning step.
+### [ ] Step: Security and State Management Review
+- Audit credential handling in `LoginDialog` and `KeybridgeClient`.
+- Verify `PersistentStateComponent` usage in `KeyscriptSettingsService`.
+- Check for plain-text storage of sensitive data (passwords, session IDs).
 
-If Planning didn't replace this step, execute the tasks in `{@artifacts_path}/plan.md`, updating checkboxes as you go. Run planned tests/lint and record results in plan.md.
+### [ ] Step: UI/UX and Integration Review
+- Evaluate `ScriptOptionsToolWindow` and `LoginDialog` integration.
+- Check `RunKeyscriptAction` context awareness.
+- Assess `JCEFBrowserManager` for native browser integration opportunities.
+
+### [ ] Step: Performance and Threading Review
+- Search for EDT violations in network calls (`KeybridgeClient`, `KeystoneClient`).
+- Analyze background task usage and coroutine implementation.
+
+### [ ] Step: Marketplace Readiness and Plugin Verifier Audit
+- Check compatibility between `build.gradle.kts` and `plugin.xml` (Build 243 vs 253).
+- Review plugin metadata for Marketplace standards.
+
+### [ ] Step: Final Report Generation
+- Compile findings into the requested sections (Executive Summary, Compliance, etc.).
+- Provide prioritized remediation plan and final verdict.
