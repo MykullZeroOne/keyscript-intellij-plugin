@@ -94,9 +94,14 @@ private class LoginDialog(
         selectedItem = settings.getDefaultInstance()
     }
 
-    // Device ID — persisted in settings
+    // Device ID — persisted in settings (used for proxy login)
     private val deviceIdField = JBTextField(settings.deviceServiceUrl).apply {
         toolTipText = "e.g. MAC: AA-BB-CC-DD-EE-FF"
+    }
+
+    // Device Name — persisted in settings (used for API logon)
+    private val deviceNameField = JBTextField(settings.deviceName).apply {
+        toolTipText = "Keystone device name for API access (e.g. MYWORKSTATION)"
     }
 
     // Credentials
@@ -134,6 +139,7 @@ private class LoginDialog(
             .addSeparator()
             .addLabeledComponent(JBLabel("Instance:"), instanceCombo, 1, false)
             .addLabeledComponent(JBLabel("Device ID:"), deviceIdField, 1, false)
+            .addLabeledComponent(JBLabel("Device Name:"), deviceNameField, 1, false)
             .addSeparator()
             .addLabeledComponent(JBLabel("Username:"), usernameField, 1, false)
             .addLabeledComponent(JBLabel("Password:"), passwordField, 1, false)
@@ -168,11 +174,13 @@ private class LoginDialog(
         val password = String(passwordField.password)
         val instance = instanceCombo.selectedItem?.toString() ?: settings.getDefaultInstance()
         val deviceId = deviceIdField.text.trim()
+        val deviceName = deviceNameField.text.trim()
 
-        // Save device ID for next time
+        // Save device ID and device name for next time
         if (deviceId.isNotBlank()) {
             settings.deviceServiceUrl = deviceId
         }
+        settings.deviceName = deviceName
 
         // Show loading state
         errorLabel.isVisible = false
@@ -184,7 +192,7 @@ private class LoginDialog(
         SwingWorker.execute {
             val result = try {
                 runBlocking {
-                    AuthenticationService.getInstance(project).login(username, password, instance, deviceId)
+                    AuthenticationService.getInstance(project).login(username, password, instance, deviceId, deviceName)
                 }
             } catch (e: Exception) {
                 AuthenticationService.LoginResult(false, error = "Login failed: ${e.message}")

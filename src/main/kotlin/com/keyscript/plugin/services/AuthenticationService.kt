@@ -56,7 +56,8 @@ class AuthenticationService(private val project: Project) {
         username: String,
         password: String,
         instance: String,
-        deviceId: String = ""
+        deviceId: String = "",
+        deviceName: String = ""
     ): LoginResult = withContext(Dispatchers.IO) {
         try {
             val proxyBase = ProxyServerService.getInstance(project).getProxyBaseUrl()
@@ -113,7 +114,7 @@ class AuthenticationService(private val project: Project) {
                 } catch (_: Exception) {}
 
                 // 5. Obtain API session via JSON logon for deploy/search
-                obtainApiSession(username, password, instance, deviceId)
+                obtainApiSession(username, password, instance, deviceName)
 
                 notify("Logged in as $userName ($instance)", NotificationType.INFORMATION)
                 LoginResult(true, userName)
@@ -138,18 +139,18 @@ class AuthenticationService(private val project: Project) {
      * Uses the logon block instead of $attr:
      * { "query": { "logon": { "userName": "...", "deviceName": "...", "password": "..." } } }
      */
-    private fun obtainApiSession(username: String, password: String, instance: String, deviceId: String) {
+    private fun obtainApiSession(username: String, password: String, instance: String, deviceName: String) {
         try {
             val settings = KeyscriptSettings.getInstance()
             val apiBase = settings.getKeystoneApiBaseUrl()
             val url = "$apiBase/$instance"
 
-            // Use the same device ID from login; fall back to settings; last resort empty
-            val deviceName = deviceId.ifEmpty { settings.deviceServiceUrl.ifEmpty { "" } }
-            val logonJson = """{"query":{"logon":{"userName":"$username","deviceName":"$deviceName","password":"${escapeJson(password)}"}}}"""
+            // Use device name from login dialog; fall back to saved setting
+            val device = deviceName.ifEmpty { settings.deviceName }
+            val logonJson = """{"query":{"logon":{"userName":"$username","deviceName":"$device","password":"${escapeJson(password)}"}}}"""
 
             // Log the request (mask password)
-            val logSafeJson = """{"query":{"logon":{"userName":"$username","deviceName":"$deviceName","password":"***"}}}"""
+            val logSafeJson = """{"query":{"logon":{"userName":"$username","deviceName":"$device","password":"***"}}}"""
             log.info("API logon request: POST $url body=$logSafeJson")
 
             val conn = URI(url).toURL().openConnection() as HttpURLConnection
