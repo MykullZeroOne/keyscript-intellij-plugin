@@ -3,11 +3,10 @@ package com.keyscript.plugin.toolwindow
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
-import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.content.ContentFactory
+import com.keyscript.plugin.onboarding.GettingStartedPanel
+import com.keyscript.plugin.onboarding.OnboardingStateService
 import com.keyscript.plugin.services.KeyscriptProjectDetector
-import com.keyscript.plugin.services.WorkspaceUiService
-import javax.swing.JComponent
 
 class KeyscriptWorkspaceToolWindowFactory : ToolWindowFactory {
     @Suppress("DEPRECATION")
@@ -15,33 +14,35 @@ class KeyscriptWorkspaceToolWindowFactory : ToolWindowFactory {
         KeyscriptProjectDetector.isKeyscriptProject(project)
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val panel = KeyscriptWorkspacePanel(project)
-        WorkspaceUiService.getInstance(project).registerWorkspaceHost(panel)
-        val content = ContentFactory.getInstance().createContent(panel.component, "", false)
-        toolWindow.contentManager.addContent(content)
-    }
-}
+        toolWindow.stripeTitle = "KS Workspace"
 
-class KeyscriptWorkspacePanel(project: Project) : WorkspaceTabHost {
-    private val tabbedPane = JBTabbedPane()
+        val contentManager = toolWindow.contentManager
+        val factory = ContentFactory.getInstance()
 
-    val component: JComponent
-
-    init {
-        tabbedPane.addTab(WorkspaceTab.RUN_OPTIONS.title, ScriptOptionsPanel(project).component)
-        tabbedPane.addTab(WorkspaceTab.SESSION.title, SessionPanel(project).component)
-
-        component = createToolWindowShell(
-            title = "Keyscript Workspace",
-            subtitle = "Manage execution parameters and session state while preview lives in the editor split view.",
-            content = tabbedPane
-        )
-    }
-
-    override fun selectTab(tab: WorkspaceTab) {
-        tabbedPane.selectedIndex = when (tab) {
-            WorkspaceTab.RUN_OPTIONS -> 0
-            WorkspaceTab.SESSION -> 1
+        // Show Getting Started tab if onboarding is not complete
+        val onboarding = OnboardingStateService.getInstance(project)
+        if (!onboarding.isComplete || !onboarding.dismissed) {
+            val gettingStarted = factory.createContent(
+                GettingStartedPanel(project).component,
+                "Getting Started",
+                false
+            )
+            gettingStarted.isCloseable = true
+            contentManager.addContent(gettingStarted)
         }
+
+        val runOptions = factory.createContent(
+            ScriptOptionsPanel(project).component,
+            WorkspaceTab.RUN_OPTIONS.title,
+            false
+        )
+        contentManager.addContent(runOptions)
+
+        val session = factory.createContent(
+            SessionPanel(project).component,
+            WorkspaceTab.SESSION.title,
+            false
+        )
+        contentManager.addContent(session)
     }
 }

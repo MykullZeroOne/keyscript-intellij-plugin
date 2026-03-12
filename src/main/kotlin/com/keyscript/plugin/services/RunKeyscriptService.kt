@@ -50,9 +50,11 @@ class RunKeyscriptService(private val project: Project) {
             val paramsId = extractJsonField(storeBody, "id")
                 ?: return RunResult(success = false, error = "Failed to store session parameters")
 
+            val debugSuffix = if (params.debugMode) "&debug=true" else ""
             val runUrl = "$proxyBase/$instance/Keyscript_IDE/RunScript" +
                 "?scriptPath=${URLEncoder.encode(scriptPath, "UTF-8")}" +
-                "&scriptParametersId=${URLEncoder.encode(paramsId, "UTF-8")}"
+                "&scriptParametersId=${URLEncoder.encode(paramsId, "UTF-8")}" +
+                debugSuffix
 
             log.info("RunScript URL: $runUrl")
             RunResult(success = true, url = runUrl)
@@ -68,11 +70,18 @@ class RunKeyscriptService(private val project: Project) {
                 error = "This file is not marked for Keyscript preview. Add ${KeyscriptFileSupport.markerHint()} near the top of the file."
             )
         }
-        primePreviewOverride(scriptFile)
-        val scriptPath = resolveScriptPath(project, scriptFile)
+
+        // For bundled projects: resolve to the pre-built bundle output instead of the raw source
+        val scriptPath = resolveBundleOutputPath(scriptFile) ?: run {
+            primePreviewOverride(scriptFile)
+            resolveScriptPath(project, scriptFile)
+        }
+
         val result = preparePreview(scriptPath)
         if (result.success && result.url != null) {
             showPreview(scriptFile, result.url)
+            // Advance onboarding milestone
+            com.keyscript.plugin.onboarding.OnboardingStateService.getInstance(project).completedFirstRun = true
         }
         return result
     }
@@ -85,12 +94,48 @@ class RunKeyscriptService(private val project: Project) {
                 error = "This file is not marked for Keyscript preview. Add ${KeyscriptFileSupport.markerHint()} near the top of the file."
             )
         }
-        scriptFile?.let(::primePreviewOverride)
-        val result = preparePreview(scriptPath)
+
+        val resolvedPath = if (scriptFile != null) {
+            resolveBundleOutputPath(scriptFile) ?: run {
+                primePreviewOverride(scriptFile)
+                scriptPath
+            }
+        } else {
+            scriptPath
+        }
+
+        val result = preparePreview(resolvedPath)
         if (result.success && result.url != null) {
             scriptFile?.let { showPreview(it, result.url) }
         }
         return result
+    }
+
+    /**
+     * If the script is inside a project with keyscript.bundle.json,
+     * return the bundle output path (e.g. "examples/react-keystone/dist/bundle.js")
+     * relative to the project root. The bundle must already be built (npm run build/watch).
+     * Returns null for non-bundled projects.
+     */
+    private fun resolveBundleOutputPath(scriptFile: VirtualFile): String? {
+        val bundleService = BundleService.getInstance(project)
+        val diskFile = java.io.File(scriptFile.path)
+        val bundleRoot = bundleService.findBundleRootFor(diskFile) ?: return null
+        val config = bundleService.readConfigFrom(bundleRoot) ?: return null
+
+        val outputFile = java.io.File(bundleRoot, config.outfile)
+        if (!outputFile.exists()) {
+            log.warn("Bundle output not found: ${outputFile.absolutePath}. Run 'npm run build' first.")
+            return null
+        }
+
+        // Compute path relative to project root
+        val projectRoot = project.guessProjectDir()?.path ?: project.basePath ?: ""
+        return if (projectRoot.isNotEmpty() && outputFile.absolutePath.startsWith(projectRoot)) {
+            outputFile.absolutePath.removePrefix(projectRoot).removePrefix("/")
+        } else {
+            config.outfile
+        }
     }
 
     companion object {

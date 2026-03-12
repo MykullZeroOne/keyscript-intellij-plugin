@@ -36,6 +36,8 @@
         <projectService serviceImplementation="com.keyscript.plugin.services.DeploymentService"/>
         <projectService serviceImplementation="com.keyscript.plugin.services.BundleService"/>
         <projectService serviceImplementation="com.keyscript.plugin.services.KeystoneApiClient"/>
+        <projectService serviceImplementation="com.keyscript.plugin.services.InstalledScriptsService"/>
+        <projectService serviceImplementation="com.keyscript.plugin.onboarding.OnboardingStateService"/>
 
         <!-- Startup -->
         <postStartupActivity implementation="com.keyscript.plugin.services.KeyscriptProjectService$StartupActivity"/>
@@ -98,6 +100,12 @@
 
         <group id="KeyscriptMenu" text="Keyscript" popup="true">
             <add-to-group group-id="MainMenu" anchor="last"/>
+            <action id="Keyscript.GettingStarted"
+                    class="com.keyscript.plugin.actions.ShowGettingStartedAction"
+                    text="Getting Started"
+                    description="Open the Keyscript IDE setup guide"
+                    icon="AllIcons.General.Information"/>
+            <separator/>
             <action id="Keyscript.Login"
                     class="com.keyscript.plugin.actions.LoginAction"
                     text="Login to Keystone"
@@ -123,6 +131,11 @@
                     icon="AllIcons.Actions.Upload">
                 <add-to-group group-id="EditorPopupMenu" anchor="last"/>
             </action>
+            <action id="Keyscript.DownloadScript"
+                    class="com.keyscript.plugin.actions.DownloadScriptAction"
+                    text="Download Script..."
+                    description="Download a deployed script from Keystone"
+                    icon="AllIcons.Actions.Download"/>
             <action id="Keyscript.Bundle"
                     class="com.keyscript.plugin.actions.BundleAction"
                     text="Bundle (esbuild)"

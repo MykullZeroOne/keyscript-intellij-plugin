@@ -5,10 +5,12 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.wm.WindowManager
+import com.keyscript.plugin.onboarding.OnboardingStateService
+import com.keyscript.plugin.onboarding.WelcomeDialog
 import javax.swing.SwingUtilities
 
 /**
- * Lightweight startup: just sets the project path and updates the status bar.
+ * Lightweight startup: sets project path, updates status bar, and triggers onboarding.
  * The proxy server starts lazily on first actual use (login, run, search).
  */
 @Service(Service.Level.PROJECT)
@@ -24,6 +26,14 @@ class KeyscriptProjectService(private val project: Project) {
         // Update status bar widget
         SwingUtilities.invokeLater {
             WindowManager.getInstance().getStatusBar(project)?.updateWidget("KeyscriptLoginStatus")
+        }
+
+        // Show welcome wizard for first-time users
+        val onboarding = OnboardingStateService.getInstance(project)
+        if (onboarding.shouldShowWelcome) {
+            SwingUtilities.invokeLater {
+                WelcomeDialog(project).show()
+            }
         }
     }
 

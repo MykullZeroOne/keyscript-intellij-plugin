@@ -69,10 +69,12 @@ class DeploymentService(private val project: Project) {
         }
 
         val fields = mutableListOf(
-            field("DESCRIPTION", description, "S"),
-            field("SOURCE_CODE", sourceCode, "S"),
-            field("CLIENT_TRAN_WORK_AREA_OPTION", workAreaOption, "S"),
-            field("CLIENT_TRAN_W_A_TAB_OPTION", workAreaTabOption, "S")
+            field("DESCRIPTION", description, ""),
+            field("LANGUAGE", "JS", ""),
+            field("CATEGORY", "C", ""),
+            field("SOURCE_CODE", sourceCode, ""),
+            field("CLIENT_TRAN_WORK_AREA_OPTION", workAreaOption, ""),
+            field("CLIENT_TRAN_W_A_TAB_OPTION", workAreaTabOption, "")
         )
 
         val body = buildQueryJson(
@@ -166,10 +168,10 @@ class DeploymentService(private val project: Project) {
         val record = linkedMapOf<String, Any>(
             "\$attr" to mapOf("label" to "Main"),
             "operation" to mapOf("option" to operation),
-            "includeRowDescriptions" to mapOf("option" to "Y"),
-            "includeAllColumns" to mapOf("option" to "Y"),
             "tableName" to "SCRIPT"
         )
+
+
 
         if (operation == "U" && !targetSerial.isNullOrBlank()) {
             record["targetSerial"] = targetSerial
@@ -241,6 +243,9 @@ class DeploymentService(private val project: Project) {
                 return null to "HTTP $status: ${responseBody.take(300)}"
             }
 
+            // Record successful API activity to keep session alive
+            SessionService.getInstance(project).recordSuccessfulActivity()
+
             responseBody to null
         } catch (e: Exception) {
             log.error("Keystone API call failed", e)
@@ -256,7 +261,11 @@ class DeploymentService(private val project: Project) {
             return DeployResult(success = false, error = error, sessionExpired = expired)
         }
 
-        return parseDeployResponse(responseBody!!)
+        val result = parseDeployResponse(responseBody!!)
+        if (result.success) {
+            com.keyscript.plugin.onboarding.OnboardingStateService.getInstance(project).completedFirstDeploy = true
+        }
+        return result
     }
 
     private fun extractSearchResults(json: JsonNode): List<ScriptSearchResult> {
