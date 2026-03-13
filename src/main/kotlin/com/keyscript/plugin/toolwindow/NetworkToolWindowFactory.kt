@@ -1,9 +1,16 @@
 package com.keyscript.plugin.toolwindow
 
+import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.JBColor
+import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
@@ -136,6 +143,12 @@ class NetworkPanel(private val project: Project) {
         columnModel.getColumn(1).cellRenderer = MethodCellRenderer()
         columnModel.getColumn(3).cellRenderer = StatusCellRenderer()
         rowHeight = JBUI.scale(22)
+        emptyText.setText("No network activity captured")
+        emptyText.appendLine(
+            "Requests appear when scripts run through the proxy",
+            SimpleTextAttributes.GRAYED_ATTRIBUTES,
+            null
+        )
     }
 
     // --- Detail panel components ---
@@ -172,14 +185,12 @@ class NetworkPanel(private val project: Project) {
 
     init {
         // ---- Toolbar ----
-        val toolbar = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
-            border = JBUI.Borders.empty(2, 4)
-            add(JButton("Clear").apply {
-                addActionListener { clearAll() }
-            })
-            add(Box.createHorizontalGlue())
+        val clearAction = object : AnAction("Clear All", "Clear all captured network traffic", AllIcons.Actions.GC) {
+            override fun actionPerformed(e: AnActionEvent) { clearAll() }
+            override fun getActionUpdateThread() = ActionUpdateThread.BGT
         }
+        val toolbarGroup = DefaultActionGroup(clearAction)
+        val toolbar = ActionManager.getInstance().createActionToolbar("KeyscriptNetwork", toolbarGroup, true)
 
         // ---- Detail panel ----
         detailPanel = buildDetailPanel()
@@ -205,7 +216,8 @@ class NetworkPanel(private val project: Project) {
         }
 
         component = JPanel(BorderLayout()).apply {
-            add(toolbar, BorderLayout.NORTH)
+            toolbar.targetComponent = this
+            add(toolbar.component, BorderLayout.NORTH)
             add(splitPane, BorderLayout.CENTER)
             border = JBUI.Borders.empty()
         }

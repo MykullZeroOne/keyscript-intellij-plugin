@@ -152,19 +152,23 @@ class ProxyRoutes(
         get("/project-scripts/{path...}") {
             val path = proxyService.activeProjectPath
             if (path.isEmpty()) {
+                log.warn("project-scripts: No project loaded (activeProjectPath is empty)")
                 call.respond(HttpStatusCode.NotFound, "No project loaded")
                 return@get
             }
             val relative = call.parameters.getAll("path")?.joinToString("/") ?: ""
             val overrideContent = proxyService.getPreviewScriptOverride(relative)
             if (overrideContent != null) {
+                log.info("project-scripts: Serving override for '$relative'")
                 call.respondText(overrideContent, ContentType.Application.JavaScript)
                 return@get
             }
             val file = java.io.File(path, relative)
             if (file.exists()) {
+                log.info("project-scripts: Serving file ${file.absolutePath} (${file.length()} bytes)")
                 call.respondFile(file)
             } else {
+                log.warn("project-scripts: File not found: ${file.absolutePath} (projectPath=$path, relative=$relative)")
                 call.respond(HttpStatusCode.NotFound, "Script not found: ${file.absolutePath}")
             }
         }
@@ -270,13 +274,26 @@ class ProxyRoutes(
     private fun Route.getRunScript(inst: String) {
         get("/$inst/Keyscript_IDE/RunScript") {
             val scriptPath = call.request.queryParameters["scriptPath"] ?: ""
-            val js = scriptPath.removeSuffix(".js")
             val parametersId = call.request.queryParameters["scriptParametersId"] ?: "-"
 
-            // Resolve script file
+            // Strip known JS extensions (.js, .jsx, .ts, .tsx) for the template variable,
+            // but keep the full path for file resolution
+            val jsExtensions = listOf(".jsx", ".tsx", ".ts", ".js")
+            val ext = jsExtensions.firstOrNull { scriptPath.endsWith(it) } ?: ""
+            val js = if (ext.isNotEmpty()) scriptPath.removeSuffix(ext) else scriptPath
+
+            // Resolve script file — check with original extension first, then .js
             val projectPath = proxyService.activeProjectPath
-            val projectFile = if (projectPath.isNotEmpty()) java.io.File(projectPath, "$js.js") else null
+            val projectFile = if (projectPath.isNotEmpty()) {
+                val withOrigExt = java.io.File(projectPath, scriptPath)
+                if (withOrigExt.exists()) withOrigExt
+                else {
+                    val withJs = java.io.File(projectPath, "$js.js")
+                    if (withJs.exists()) withJs else null
+                }
+            } else null
             val useProject = projectFile?.exists() == true
+            log.info("RunScript: scriptPath=$scriptPath, js=$js, ext=$ext, projectPath=$projectPath, useProject=$useProject, projectFile=${projectFile?.absolutePath}")
 
             // Retrieve stored params
             val storedParams = ideParamsData[parametersId]
@@ -293,7 +310,8 @@ class ProxyRoutes(
                 params = """{"crlogin":{"instance":"$inst"},"crscript":{}}"""
             }
 
-            val scriptSrc = if (useProject) "/project-scripts/$js.js" else "/scripts/$js.js"
+            // Build script src URL — use the original scriptPath for project files (preserves actual extension)
+            val scriptSrc = if (useProject) "/project-scripts/$scriptPath" else "/scripts/$js.js"
 
             // Load templates from resources
             val headSection = loadTemplate("templates/head-section.html")

@@ -53,14 +53,19 @@ class BundleService(private val project: Project) {
     /**
      * Read keyscript.bundle.json from project root, or null if not present.
      */
-    fun readConfig(): BundleConfig? {
-        val basePath = project.basePath ?: return null
-        val configFile = File(basePath, "keyscript.bundle.json")
+    fun readConfig(): BundleConfig? = readConfigFrom(findBundleRoot())
+
+    /**
+     * Read keyscript.bundle.json from a specific directory.
+     */
+    fun readConfigFrom(bundleRoot: File?): BundleConfig? {
+        if (bundleRoot == null) return null
+        val configFile = File(bundleRoot, "keyscript.bundle.json")
         if (!configFile.exists()) return null
         return try {
             mapper.readValue(configFile)
         } catch (e: Exception) {
-            log.warn("Failed to parse keyscript.bundle.json", e)
+            log.warn("Failed to parse keyscript.bundle.json in ${bundleRoot.absolutePath}", e)
             null
         }
     }
@@ -68,24 +73,53 @@ class BundleService(private val project: Project) {
     /**
      * Check if the project has a bundle configuration.
      */
-    fun hasBundleConfig(): Boolean {
-        val basePath = project.basePath ?: return false
-        return File(basePath, "keyscript.bundle.json").exists()
+    fun hasBundleConfig(): Boolean = findBundleRoot() != null
+
+    /**
+     * Find the nearest directory containing keyscript.bundle.json.
+     * Checks project root first, then searches common subdirectories.
+     */
+    fun findBundleRoot(): File? {
+        val basePath = project.basePath ?: return null
+        val root = File(basePath)
+        if (File(root, "keyscript.bundle.json").exists()) return root
+        return null
     }
 
     /**
-     * Locate the esbuild binary. Checks:
-     * 1. Project-local node_modules/.bin/esbuild
-     * 2. Global npx esbuild
+     * Find the bundle root by walking up from a script file's directory.
+     * This handles cases where the script is in a subdirectory that has its own keyscript.bundle.json.
+     */
+    fun findBundleRootFor(scriptFile: File): File? {
+        val basePath = project.basePath ?: return null
+        val projectRoot = File(basePath).canonicalFile
+        var dir = scriptFile.parentFile?.canonicalFile
+        while (dir != null && dir.path.startsWith(projectRoot.path)) {
+            if (File(dir, "keyscript.bundle.json").exists()) return dir
+            dir = dir.parentFile
+        }
+        return null
+    }
+
+    /**
+     * Locate the esbuild binary relative to a bundle root directory. Checks:
+     * 1. Bundle-root-local node_modules/.bin/esbuild
+     * 2. Project-root-local node_modules/.bin/esbuild
      * 3. Global esbuild on PATH
      */
-    fun findEsbuild(): String? {
-        val basePath = project.basePath ?: return null
-        val root = File(basePath)
+    fun findEsbuild(bundleRoot: File? = null): String? {
+        // Check bundle root first (e.g., examples/react-keystone/node_modules/.bin/esbuild)
+        if (bundleRoot != null) {
+            val localBin = File(bundleRoot, "node_modules/.bin/esbuild")
+            if (localBin.exists() && localBin.canExecute()) return localBin.absolutePath
+        }
 
-        // Project-local
-        val localBin = File(root, "node_modules/.bin/esbuild")
-        if (localBin.exists() && localBin.canExecute()) return localBin.absolutePath
+        // Check project root
+        val basePath = project.basePath
+        if (basePath != null) {
+            val projectBin = File(basePath, "node_modules/.bin/esbuild")
+            if (projectBin.exists() && projectBin.canExecute()) return projectBin.absolutePath
+        }
 
         // Check PATH
         return try {
@@ -102,20 +136,20 @@ class BundleService(private val project: Project) {
 
     /**
      * Run esbuild with the project's bundle configuration.
+     * @param bundleRoot The directory containing keyscript.bundle.json. If null, uses project root.
      */
-    fun bundle(config: BundleConfig? = null, watch: Boolean = false): BundleResult {
-        val cfg = config ?: readConfig()
-            ?: return BundleResult(success = false, error = "No keyscript.bundle.json found in project root")
+    fun bundle(config: BundleConfig? = null, watch: Boolean = false, bundleRoot: File? = null): BundleResult {
+        val root = bundleRoot ?: findBundleRoot()
+            ?: return BundleResult(success = false, error = "No keyscript.bundle.json found")
 
-        val esbuild = findEsbuild()
+        val cfg = config ?: readConfigFrom(root)
+            ?: return BundleResult(success = false, error = "No keyscript.bundle.json found in ${root.absolutePath}")
+
+        val esbuild = findEsbuild(root)
             ?: return BundleResult(
                 success = false,
                 error = "esbuild not found. Install it with: npm install esbuild --save-dev"
             )
-
-        val basePath = project.basePath
-            ?: return BundleResult(success = false, error = "Cannot determine project path")
-        val root = File(basePath)
 
         // Ensure output directory exists
         val outFile = File(root, cfg.outfile)

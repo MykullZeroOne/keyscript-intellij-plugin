@@ -23,7 +23,7 @@ class KtorProxyServer(
     private var server: ApplicationEngine? = null
 
     fun start() {
-        server = embeddedServer(CIO, port = proxyPort, host = "localhost") {
+        server = embeddedServer(CIO, port = proxyPort, host = "0.0.0.0") {
             install(CORS) {
                 anyHost()
                 allowHeader(HttpHeaders.ContentType)

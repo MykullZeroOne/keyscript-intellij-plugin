@@ -44,6 +44,7 @@ class SearchPanel(private val project: Project) {
         columnModel.getColumn(0).preferredWidth = 80
         columnModel.getColumn(1).preferredWidth = 300
         columnModel.getColumn(2).preferredWidth = 60
+        emptyText.setText("Search for persons or accounts above")
     }
 
     private val statusLabel = JLabel(" ")

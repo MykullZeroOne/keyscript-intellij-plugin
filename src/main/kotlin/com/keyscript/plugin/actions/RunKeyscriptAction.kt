@@ -10,8 +10,10 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.Messages
 import com.keyscript.plugin.services.KeyscriptFileSupport
 import com.keyscript.plugin.services.RunKeyscriptService
+import com.keyscript.plugin.services.SessionService
 import kotlinx.coroutines.runBlocking
 
 class RunKeyscriptAction : AnAction() {
@@ -23,12 +25,24 @@ class RunKeyscriptAction : AnAction() {
         val project = e.project
         e.presentation.isEnabledAndVisible = project != null &&
             file != null &&
-            KeyscriptFileSupport.isKeyscriptFile(file)
+            KeyscriptFileSupport.isKeyscriptFile(file, project)
     }
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val file = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
+
+        val session = SessionService.getInstance(project)
+        if (session.isLiveDatabase()) {
+            val dbName = session.loginData["databaseName"] ?: "unknown"
+            val result = Messages.showYesNoDialog(
+                project,
+                "WARNING: You are connected to a LIVE database ($dbName).\n\nAre you sure you want to run this script?",
+                "Live Database Warning",
+                Messages.getWarningIcon()
+            )
+            if (result != Messages.YES) return
+        }
 
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Running Keyscript...") {
             override fun run(indicator: ProgressIndicator) {

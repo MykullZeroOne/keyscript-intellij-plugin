@@ -80,6 +80,9 @@ class KeystoneApiClient(private val project: Project) {
                 return ApiResult(success = false, error = "HTTP $status: ${responseBody.take(300)}")
             }
 
+            // Record successful API activity to reset keepalive failure counter
+            session.recordSuccessfulActivity()
+
             val json = mapper.readTree(responseBody)
             val errors = extractErrors(json)
             if (errors.isNotEmpty()) {
@@ -210,9 +213,7 @@ class KeystoneApiClient(private val project: Project) {
     }
 
     private fun handleSessionExpired() {
-        val session = SessionService.getInstance(project)
-        session.clearSession()
-        ProxyServerService.getInstance(project).setSsoSession("")
+        SessionService.getInstance(project).handleSessionExpired()
     }
 
     private fun findDeep(node: JsonNode, key: String): JsonNode? {

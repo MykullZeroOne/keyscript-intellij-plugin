@@ -4,7 +4,7 @@ import com.intellij.ide.util.projectWizard.ModuleBuilder
 import com.intellij.ide.util.projectWizard.ModuleWizardStep
 import com.intellij.ide.util.projectWizard.WizardContext
 import com.intellij.openapi.module.ModuleType
-import com.intellij.openapi.module.StdModuleTypes
+import com.intellij.openapi.module.ModuleTypeManager
 import com.intellij.openapi.roots.ModifiableRootModel
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -40,7 +40,8 @@ class KeyscriptModuleBuilder : ModuleBuilder() {
         )
     }
 
-    override fun getModuleType(): ModuleType<*> = StdModuleTypes.JAVA
+    override fun getModuleType(): ModuleType<*> = ModuleTypeManager.getInstance().findByID("WEB_MODULE")
+        ?: ModuleTypeManager.getInstance().defaultModuleType
     override fun getName(): String = "Keyscript"
     override fun getPresentableName(): String = "Keyscript"
     override fun getDescription(): String = "Create a new Keyscript project for Keystone script development"

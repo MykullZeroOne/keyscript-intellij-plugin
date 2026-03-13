@@ -14,6 +14,7 @@ import com.keyscript.plugin.services.ProxyServerService
 import com.keyscript.plugin.services.SessionService
 import com.keyscript.plugin.settings.KeyscriptSettingsConfigurable
 import java.awt.BorderLayout
+import java.awt.CardLayout
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
@@ -22,12 +23,21 @@ import javax.swing.JPanel
 
 class SessionPanel(private val project: Project) {
     private val session = SessionService.getInstance(project)
-    private val detailsPanel = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(8)
-    }
     private val stateLabel = JBLabel()
     private val listener = { refresh() }
+
+    // ─── Persistent value labels (created once) ───────────────────────────────
+    private val usernameValue = JBLabel("-")
+    private val instanceValue = JBLabel("-")
+    private val sessionValue = JBLabel("-")
+    private val databaseValue = JBLabel("-")
+    private val locationValue = JBLabel("-")
+    private val postingDateValue = JBLabel("-")
+    private val authValue = JBLabel("-")
+
+    // ─── Card layout switching between logged-in and logged-out views ─────────
+    private val cardLayout = CardLayout()
+    private val cardContainer = JPanel(cardLayout)
 
     val component: JComponent = JPanel(BorderLayout()).apply {
         add(
@@ -37,16 +47,69 @@ class SessionPanel(private val project: Project) {
             },
             BorderLayout.NORTH
         )
-        add(JBScrollPane(detailsPanel), BorderLayout.CENTER)
+        add(JBScrollPane(cardContainer), BorderLayout.CENTER)
     }
 
     init {
+        cardContainer.add(buildEmptyCard(), "empty")
+        cardContainer.add(buildInfoCard(), "info")
         session.addListener(listener)
         refresh()
     }
 
-    private fun refresh() {
-        detailsPanel.removeAll()
+    private fun buildEmptyCard(): JPanel {
+        return JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(8)
+            add(JBLabel("Log in to run scripts and browse Keystone data."), BorderLayout.NORTH)
+            add(
+                JPanel().apply {
+                    layout = BoxLayout(this, BoxLayout.X_AXIS)
+                    add(createActionButton("Login") { triggerLoginAction() })
+                    add(Box.createHorizontalStrut(8))
+                    add(ActionLink("Open Settings") { openSettings() })
+                },
+                BorderLayout.SOUTH
+            )
+        }
+    }
+
+    private fun buildInfoCard(): JPanel {
+        val details = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            border = JBUI.Borders.empty(8)
+        }
+        details.add(infoRow("User", usernameValue))
+        details.add(infoRow("Instance", instanceValue))
+        details.add(infoRow("Session", sessionValue))
+        details.add(infoRow("Database", databaseValue))
+        details.add(infoRow("Location", locationValue))
+        details.add(infoRow("Posting Date", postingDateValue))
+        details.add(infoRow("Auth", authValue))
+        details.add(Box.createVerticalStrut(12))
+        details.add(
+            JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.X_AXIS)
+                add(createActionButton("Manage Login") { triggerLoginAction() })
+                add(Box.createHorizontalStrut(8))
+                add(createActionButton("Logout") { logout() })
+                add(Box.createHorizontalStrut(8))
+                add(ActionLink("Open Settings") { openSettings() })
+            }
+        )
+        return details
+    }
+
+    private fun infoRow(label: String, valueLabel: JBLabel): JComponent {
+        return JPanel(BorderLayout(8, 0)).apply {
+            border = JBUI.Borders.empty(0, 0, 8, 0)
+            add(JBLabel("$label:").apply { foreground = UIUtil.getContextHelpForeground() }, BorderLayout.WEST)
+            add(valueLabel, BorderLayout.CENTER)
+        }
+    }
+
+    private fun String?.orDash(): String = if (isNullOrBlank()) "\u2014" else this
+
+    fun refresh() {
         stateLabel.text = if (session.isLoggedIn) {
             "Connected to Keystone"
         } else {
@@ -54,53 +117,21 @@ class SessionPanel(private val project: Project) {
         }
         stateLabel.foreground = UIUtil.getLabelForeground()
 
-        if (!session.isLoggedIn) {
-            detailsPanel.add(
-                JPanel(BorderLayout()).apply {
-                    border = JBUI.Borders.empty(8)
-                    add(JBLabel("Log in to run scripts and browse Keystone data."), BorderLayout.NORTH)
-                    add(
-                        JPanel().apply {
-                            layout = BoxLayout(this, BoxLayout.X_AXIS)
-                            add(createActionButton("Login") { triggerLoginAction() })
-                            add(Box.createHorizontalStrut(8))
-                            add(ActionLink("Open Settings") { openSettings() })
-                        },
-                        BorderLayout.SOUTH
-                    )
-                }
-            )
+        if (session.isLoggedIn) {
+            usernameValue.text = session.username.orDash()
+            instanceValue.text = session.instance.orDash()
+            sessionValue.text = session.jsessionId.orDash()
+            databaseValue.text = session.loginData["databaseName"].orDash()
+            locationValue.text = session.loginData["locationName"].orDash()
+            postingDateValue.text = session.loginData["postingDate"].orDash()
+            authValue.text = if (session.loginData["ssoLogin"] == "true") "Kerberos SSO" else "Username / Password"
+            cardLayout.show(cardContainer, "info")
         } else {
-            detailsPanel.add(infoRow("User", session.username))
-            detailsPanel.add(infoRow("Instance", session.instance))
-            detailsPanel.add(infoRow("Session", session.jsessionId))
-            detailsPanel.add(infoRow("Database", session.loginData["databaseName"]))
-            detailsPanel.add(infoRow("Location", session.loginData["locationName"]))
-            detailsPanel.add(infoRow("Posting Date", session.loginData["postingDate"]))
-            detailsPanel.add(infoRow("Auth", if (session.loginData["ssoLogin"] == "true") "Kerberos SSO" else "Username / Password"))
-            detailsPanel.add(Box.createVerticalStrut(12))
-            detailsPanel.add(
-                JPanel().apply {
-                    layout = BoxLayout(this, BoxLayout.X_AXIS)
-                    add(createActionButton("Manage Login") { triggerLoginAction() })
-                    add(Box.createHorizontalStrut(8))
-                    add(createActionButton("Logout") { logout() })
-                    add(Box.createHorizontalStrut(8))
-                    add(ActionLink("Open Settings") { openSettings() })
-                }
-            )
+            cardLayout.show(cardContainer, "empty")
         }
 
-        detailsPanel.revalidate()
-        detailsPanel.repaint()
-    }
-
-    private fun infoRow(label: String, value: String?): JComponent {
-        return JPanel(BorderLayout(8, 0)).apply {
-            border = JBUI.Borders.empty(0, 0, 8, 0)
-            add(JBLabel("$label:").apply { foreground = UIUtil.getContextHelpForeground() }, BorderLayout.WEST)
-            add(JBLabel(value?.ifBlank { "\u2014" } ?: "\u2014"), BorderLayout.CENTER)
-        }
+        cardContainer.revalidate()
+        cardContainer.repaint()
     }
 
     private fun createActionButton(label: String, onClick: () -> Unit): JButton {

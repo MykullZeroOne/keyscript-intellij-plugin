@@ -1,3 +1,4 @@
+
 # IntelliJ IDEA
 .idea/
 *.iml
@@ -15,3 +16,7 @@ gradle.properties
 # Misc
 .DS_Store
 .intellijPlatform/
+/.zenflow/
+/.zencoder/
+.kotlin/
+node_modules/

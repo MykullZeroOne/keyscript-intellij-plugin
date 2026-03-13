@@ -5,65 +5,39 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.util.ui.UIUtil
 import com.keyscript.plugin.toolwindow.DataToolsTab
-import com.keyscript.plugin.toolwindow.DataToolsTabHost
 import com.keyscript.plugin.toolwindow.DiagnosticsTab
-import com.keyscript.plugin.toolwindow.DiagnosticsTabHost
 import com.keyscript.plugin.toolwindow.KeyscriptToolWindowIds
 import com.keyscript.plugin.toolwindow.WorkspaceTab
-import com.keyscript.plugin.toolwindow.WorkspaceTabHost
 import javax.swing.SwingUtilities
 
 @Service(Service.Level.PROJECT)
 class WorkspaceUiService(private val project: Project) {
-    private var workspaceHost: WorkspaceTabHost? = null
-    private var dataToolsHost: DataToolsTabHost? = null
-    private var diagnosticsHost: DiagnosticsTabHost? = null
-
-    fun registerWorkspaceHost(host: WorkspaceTabHost) {
-        workspaceHost = host
-    }
-
-    fun registerDataToolsHost(host: DataToolsTabHost) {
-        dataToolsHost = host
-    }
-
-    fun registerDiagnosticsHost(host: DiagnosticsTabHost) {
-        diagnosticsHost = host
-    }
 
     fun showWorkspaceTab(tab: WorkspaceTab) {
-        showToolWindow(KeyscriptToolWindowIds.WORKSPACE) {
-            workspaceHost?.selectTab(tab)
-        }
+        selectContentByName(KeyscriptToolWindowIds.WORKSPACE, tab.title)
     }
 
     fun showDataToolsTab(tab: DataToolsTab) {
-        showToolWindow(KeyscriptToolWindowIds.DATA_TOOLS) {
-            dataToolsHost?.selectTab(tab)
-        }
+        selectContentByName(KeyscriptToolWindowIds.DATA_TOOLS, tab.title)
     }
 
     fun showDiagnosticsTab(tab: DiagnosticsTab) {
-        showToolWindow(KeyscriptToolWindowIds.DIAGNOSTICS) {
-            diagnosticsHost?.selectTab(tab)
-        }
+        selectContentByName(KeyscriptToolWindowIds.DIAGNOSTICS, tab.title)
     }
 
-    private fun showToolWindow(id: String, afterShow: () -> Unit) {
-        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(id)
-        if (toolWindow == null) {
-            afterShow()
-            return
-        }
-
-        val action = {
+    private fun selectContentByName(toolWindowId: String, contentName: String) {
+        val action = Runnable {
+            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(toolWindowId) ?: return@Runnable
             toolWindow.show {
-                afterShow()
+                val content = toolWindow.contentManager.contents.firstOrNull { it.displayName == contentName }
+                if (content != null) {
+                    toolWindow.contentManager.setSelectedContent(content, true)
+                }
             }
         }
 
         if (SwingUtilities.isEventDispatchThread()) {
-            action()
+            action.run()
         } else {
             UIUtil.invokeLaterIfNeeded(action)
         }

@@ -1,13 +1,13 @@
 package com.keyscript.plugin.toolwindow
 
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
-import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.content.ContentFactory
 import com.keyscript.plugin.services.KeyscriptProjectDetector
-import com.keyscript.plugin.services.WorkspaceUiService
-import javax.swing.JComponent
+import com.intellij.icons.AllIcons
 
 class KeyscriptDataToolsToolWindowFactory : ToolWindowFactory {
     @Suppress("DEPRECATION")
@@ -15,31 +15,49 @@ class KeyscriptDataToolsToolWindowFactory : ToolWindowFactory {
         KeyscriptProjectDetector.isKeyscriptProject(project)
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val panel = KeyscriptDataToolsPanel(project)
-        WorkspaceUiService.getInstance(project).registerDataToolsHost(panel)
-        val content = ContentFactory.getInstance().createContent(panel.component, "", false)
-        toolWindow.contentManager.addContent(content)
-    }
-}
+        toolWindow.stripeTitle = "KS Data"
 
-class KeyscriptDataToolsPanel(project: Project) : DataToolsTabHost {
-    private val tabbedPane = JBTabbedPane()
+        val contentManager = toolWindow.contentManager
+        val factory = ContentFactory.getInstance()
 
-    val component: JComponent
-
-    init {
-        tabbedPane.addTab(DataToolsTab.SEARCH.title, SearchPanel(project).component)
-        tabbedPane.addTab(DataToolsTab.TABLE_BROWSER.title, TableBrowserPanel(project).component)
-        tabbedPane.addTab(DataToolsTab.QUERY_BUILDER.title, QueryBuilderPanel(project).component)
-
-        component = createToolWindowShell(
-            title = "Keyscript Data Tools",
-            subtitle = "Search members, browse tables, and build queries from one coordinated workspace.",
-            content = tabbedPane
+        val search = factory.createContent(
+            SearchPanel(project).component,
+            DataToolsTab.SEARCH.title,
+            false
         )
-    }
+        contentManager.addContent(search)
 
-    override fun selectTab(tab: DataToolsTab) {
-        tabbedPane.selectedIndex = tab.ordinal
+        val tableBrowser = factory.createContent(
+            TableBrowserPanel(project).component,
+            DataToolsTab.TABLE_BROWSER.title,
+            false
+        )
+        contentManager.addContent(tableBrowser)
+
+        val queryBuilder = factory.createContent(
+            QueryBuilderPanel(project).component,
+            DataToolsTab.QUERY_BUILDER.title,
+            false
+        )
+        contentManager.addContent(queryBuilder)
+
+        val installedScripts = factory.createContent(
+            InstalledScriptsPanel(project).component,
+            DataToolsTab.INSTALLED_SCRIPTS.title,
+            false
+        )
+        contentManager.addContent(installedScripts)
+
+        // Add refresh action to tool window title bar
+        val refreshAction = object : AnAction("Refresh", "Refresh data tools content", AllIcons.Actions.Refresh) {
+            override fun actionPerformed(e: AnActionEvent) {
+                // Re-select the current tab to trigger a refresh
+                val selected = contentManager.selectedContent
+                if (selected != null) {
+                    contentManager.setSelectedContent(selected, true)
+                }
+            }
+        }
+        toolWindow.setTitleActions(listOf(refreshAction))
     }
 }

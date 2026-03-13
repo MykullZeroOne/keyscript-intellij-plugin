@@ -20,7 +20,7 @@ class KeyscriptRunLineMarkerContributor : RunLineMarkerContributor() {
         if (file.firstChild !== element) return null
 
         val virtualFile = file.virtualFile ?: return null
-        if (!KeyscriptFileSupport.isKeyscriptFile(virtualFile)) return null
+        if (!KeyscriptFileSupport.isKeyscriptFile(virtualFile, element.project)) return null
 
         val actions = ExecutorAction.getActions(0)
         return Info(

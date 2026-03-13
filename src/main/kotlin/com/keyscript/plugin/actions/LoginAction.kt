@@ -5,6 +5,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
@@ -30,13 +31,13 @@ class LoginAction : AnAction() {
 
         if (session.isLoggedIn) {
             // Already logged in — confirm logout
-            val choice = JOptionPane.showConfirmDialog(
-                null,
+            val choice = Messages.showYesNoDialog(
+                project,
                 "Logged in as ${session.username} (${session.instance}).\nDo you want to log out?",
                 "Keyscript Session",
-                JOptionPane.YES_NO_OPTION
+                Messages.getQuestionIcon()
             )
-            if (choice == JOptionPane.YES_OPTION) {
+            if (choice == Messages.YES) {
                 session.clearSession()
                 ProxyServerService.getInstance(project).setSsoSession("")
             }

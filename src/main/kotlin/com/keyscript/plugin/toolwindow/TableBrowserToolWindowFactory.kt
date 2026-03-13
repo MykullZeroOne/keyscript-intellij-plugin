@@ -7,6 +7,8 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.ui.ListSpeedSearch
+import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
@@ -49,6 +51,12 @@ class TableBrowserPanel(private val project: Project) {
     private val tableListModel = DefaultListModel<TableEntry>()
     private val tableList = JBList(tableListModel).apply {
         selectionMode = ListSelectionModel.SINGLE_SELECTION
+        emptyText.setText("No tables available")
+        emptyText.appendLine("Login to load table metadata", SimpleTextAttributes.GRAYED_ATTRIBUTES, null)
+    }
+    @Suppress("unused")
+    private val tableListSpeedSearch = object : ListSpeedSearch<TableEntry>(tableList) {
+        override fun getElementText(element: Any?): String? = (element as? TableEntry)?.name
     }
     private var allTables = listOf<TableEntry>()
 
@@ -61,6 +69,7 @@ class TableBrowserPanel(private val project: Project) {
     )
     private val columnsTable = JBTable(columnsModel).apply {
         autoResizeMode = JTable.AUTO_RESIZE_LAST_COLUMN
+        emptyText.setText("Select a table from the sidebar")
     }
 
     // Search tab
@@ -68,7 +77,9 @@ class TableBrowserPanel(private val project: Project) {
     private val searchParamField = JBTextField()
     private val searchRecordsButton = JButton("Search")
     private val searchResultModel = DefaultTableModel(arrayOf("Serial", "Description"), 0)
-    private val searchResultTable = JBTable(searchResultModel)
+    private val searchResultTable = JBTable(searchResultModel).apply {
+        emptyText.setText("Use a filter to search records")
+    }
 
     // Search tab - filter detail & template preview
     private val searchFilterDetailModel = DefaultTableModel(arrayOf("Column Name", "Data Type"), 0)

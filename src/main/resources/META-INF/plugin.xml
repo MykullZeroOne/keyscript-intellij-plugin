@@ -37,6 +37,7 @@
         <projectService serviceImplementation="com.keyscript.plugin.services.BundleService"/>
         <projectService serviceImplementation="com.keyscript.plugin.services.KeystoneApiClient"/>
         <projectService serviceImplementation="com.keyscript.plugin.services.InstalledScriptsService"/>
+        <projectService serviceImplementation="com.keyscript.plugin.services.BundleWatchService"/>
         <projectService serviceImplementation="com.keyscript.plugin.onboarding.OnboardingStateService"/>
 
         <!-- Startup -->

@@ -1,7 +1,7 @@
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "2.1.0"
-    id("org.jetbrains.intellij.platform") version "2.2.1"
+    id("org.jetbrains.intellij.platform") version "2.11.0"
 }
 
 group = "com.keyscript.plugin"
@@ -16,10 +16,8 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        intellijIdeaUltimate("2025.1.3")
-        bundledPlugin("com.intellij.java")
+        local("/Volumes/Applications/Jetbrains/WebStorm.app")
         bundledPlugin("JavaScript")
-
     }
 
     // Ktor for embedded proxy server (CIO engine — lightweight, no Netty)

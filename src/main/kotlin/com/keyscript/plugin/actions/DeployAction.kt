@@ -13,22 +13,21 @@ import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
-import com.intellij.openapi.ui.Messages
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
 import com.keyscript.plugin.services.*
-import com.keyscript.plugin.settings.KeyscriptSettings
 import java.awt.BorderLayout
 import java.awt.Dimension
-import java.awt.FlowLayout
+import java.awt.Font
 import javax.swing.*
 
 /**
- * Deploy the current Keyscript file to a Keystone environment.
- * Searches for existing scripts by description and offers overwrite.
+ * Quick deploy the current Keyscript file to a Keystone environment.
+ * For full script management (browse, update existing, install new),
+ * use the Installed Scripts tool window instead.
  */
 class DeployAction : AnAction() {
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
@@ -38,7 +37,7 @@ class DeployAction : AnAction() {
         val project = e.project
         e.presentation.isEnabledAndVisible = project != null &&
             file != null &&
-            KeyscriptFileSupport.isKeyscriptFile(file)
+            KeyscriptFileSupport.isKeyscriptFile(file, project)
     }
 
     override fun actionPerformed(e: AnActionEvent) {
@@ -119,8 +118,8 @@ class DeployAction : AnAction() {
 }
 
 /**
- * Deployment dialog — choose mode (new/update), description, and work area.
- * Searches for existing scripts by description to detect duplicates.
+ * Simplified deployment dialog for quick right-click deploys.
+ * Searches by description to auto-detect existing scripts.
  */
 private class DeployDialog(
     private val project: Project,
@@ -129,37 +128,26 @@ private class DeployDialog(
     private val hasBundleConfig: Boolean
 ) : DialogWrapper(project) {
 
-    private val settings = KeyscriptSettings.getInstance()
-
     // Mode toggle
-    private val newRadio = JRadioButton("New Deployment", true)
+    private val newRadio = JRadioButton("New Script", true)
     private val updateRadio = JRadioButton("Update Existing")
 
     // Fields
     private val descriptionField = JBTextField(fileName)
     private val serialField = JBTextField("").apply { isEnabled = false }
-    private val searchButton = JButton("Search").apply {
+    private val searchButton = JButton("Find Existing").apply {
         toolTipText = "Search for existing script by description"
     }
     private val searchStatusLabel = JBLabel("").apply {
         foreground = java.awt.Color.GRAY
     }
     private val workAreaCombo = ComboBox(arrayOf(
-        "D" to "Development",
-        "T" to "Test",
-        "P" to "Production"
-    ).map { "${it.first} — ${it.second}" }.toTypedArray()).apply {
-        selectedIndex = 0
-    }
-    private val bundleCheckbox = JCheckBox("Bundle before deploying (esbuild)", hasBundleConfig).apply {
+        "D — Development",
+        "T — Test",
+        "P — Production"
+    )).apply { selectedIndex = 0 }
+    private val bundleCheckbox = JCheckBox("Bundle before deploying", hasBundleConfig).apply {
         isEnabled = hasBundleConfig
-    }
-
-    // Preview
-    private val previewArea = JBTextArea().apply {
-        isEditable = false
-        font = java.awt.Font("Monospaced", java.awt.Font.PLAIN, 11)
-        lineWrap = true
     }
 
     val isUpdate: Boolean get() = updateRadio.isSelected
@@ -173,27 +161,17 @@ private class DeployDialog(
         }
 
     init {
-        title = "Deploy Keyscript"
+        title = "Deploy Script"
         setOKButtonText("Deploy")
         init()
 
-        // Mode toggle behavior
         val group = ButtonGroup()
         group.add(newRadio)
         group.add(updateRadio)
         newRadio.addActionListener { serialField.isEnabled = false }
         updateRadio.addActionListener { serialField.isEnabled = true }
 
-        // Search button — search for existing script by description
         searchButton.addActionListener { searchForExistingScript() }
-
-        // Set preview
-        val lines = sourceCode.lines()
-        previewArea.text = if (lines.size > 20) {
-            lines.take(20).joinToString("\n") + "\n... (${lines.size} total lines)"
-        } else {
-            sourceCode
-        }
     }
 
     private fun searchForExistingScript() {
@@ -215,7 +193,7 @@ private class DeployDialog(
                 if (error != null) {
                     searchStatusLabel.text = "Search failed: $error"
                 } else if (results.isEmpty()) {
-                    searchStatusLabel.text = "No existing script found — will create new"
+                    searchStatusLabel.text = "No match — will create new"
                     newRadio.isSelected = true
                     serialField.isEnabled = false
                     serialField.text = ""
@@ -225,9 +203,8 @@ private class DeployDialog(
                     updateRadio.isSelected = true
                     serialField.isEnabled = true
                     serialField.text = first.serial
-
                     if (results.size > 1) {
-                        searchStatusLabel.text = "Found ${results.size} scripts — using #${first.serial}"
+                        searchStatusLabel.text = "${results.size} matches — using #${first.serial}"
                     }
                 }
             }
@@ -235,34 +212,46 @@ private class DeployDialog(
     }
 
     override fun createCenterPanel(): JComponent {
-        val modePanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
+        val modePanel = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 8, 0)).apply {
             add(newRadio)
             add(updateRadio)
         }
 
-        val descriptionPanel = JPanel(BorderLayout(4, 0)).apply {
+        val descPanel = JPanel(BorderLayout(4, 0)).apply {
             add(descriptionField, BorderLayout.CENTER)
             add(searchButton, BorderLayout.EAST)
         }
 
+        val previewArea = JBTextArea().apply {
+            isEditable = false
+            font = Font(Font.MONOSPACED, Font.PLAIN, 11)
+            lineWrap = true
+            val lines = sourceCode.lines()
+            text = if (lines.size > 15) {
+                lines.take(15).joinToString("\n") + "\n... (${lines.size} total lines)"
+            } else {
+                sourceCode
+            }
+        }
+
         val form = FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("Mode:"), modePanel, 1, false)
-            .addLabeledComponent(JBLabel("Target Serial:"), serialField, 1, false)
+            .addLabeledComponent(JBLabel("Serial:"), serialField, 1, false)
             .addSeparator()
-            .addLabeledComponent(JBLabel("Description:"), descriptionPanel, 1, false)
+            .addLabeledComponent(JBLabel("Description:"), descPanel, 1, false)
             .addComponent(searchStatusLabel)
             .addLabeledComponent(JBLabel("Work Area:"), workAreaCombo, 1, false)
             .addComponent(bundleCheckbox)
             .addSeparator()
-            .addLabeledComponent(JBLabel("Source Preview:"), JScrollPane(previewArea).apply {
-                preferredSize = Dimension(500, 150)
+            .addLabeledComponent(JBLabel("Preview:"), JScrollPane(previewArea).apply {
+                preferredSize = Dimension(480, 120)
             }, 1, true)
             .panel
 
         return JPanel(BorderLayout()).apply {
             add(form, BorderLayout.CENTER)
             border = JBUI.Borders.empty(8)
-            preferredSize = Dimension(550, 460)
+            preferredSize = Dimension(520, 420)
         }
     }
 

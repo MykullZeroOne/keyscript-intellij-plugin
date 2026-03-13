@@ -1,11 +1,22 @@
 package com.keyscript.plugin.toolwindow
 
+import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.MessageType
+import com.intellij.openapi.ui.popup.Balloon
+import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.testFramework.LightVirtualFile
+import com.intellij.ui.TreeSpeedSearch
+import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.components.JBTextArea
@@ -16,7 +27,6 @@ import com.intellij.util.ui.JBUI
 import com.keyscript.plugin.services.ProxyServerService
 import kotlinx.coroutines.*
 import java.awt.BorderLayout
-import java.awt.FlowLayout
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import javax.swing.*
@@ -324,28 +334,99 @@ class QueryBuilderPanel(private val project: Project) {
         // Tree selection updates properties
         tree.addTreeSelectionListener { updatePropsPanel() }
 
-        // Toolbar buttons
-        val toolbar = JPanel(FlowLayout(FlowLayout.LEFT, 4, 2)).apply {
-            add(createAddDropdownButton())
-            add(JButton("Remove").apply {
-                addActionListener { removeSelectedNode() }
-            })
-            add(Box.createHorizontalStrut(16))
-            add(JButton("Verify").apply {
-                addActionListener { executeQuery(verify = true) }
-            })
-            add(JButton("Post").apply {
-                addActionListener { executeQuery(verify = false) }
-            })
-            add(Box.createHorizontalStrut(16))
-            add(JButton("Copy XML").apply {
-                addActionListener { copyToClipboard(buildXml()) }
-            })
-            add(JButton("HTTP Client").apply {
-                toolTipText = "Open query as an IntelliJ HTTP request file"
-                addActionListener { openInHttpClient() }
-            })
+        // Speed search on tree
+        TreeSpeedSearch.installOn(tree, false) { path -> path.lastPathComponent.toString() }
+
+        // Toolbar actions — "Add..." opens a dynamic popup built at action-perform time
+        val addAction = object : AnAction("Add...", "Add a subelement to the query", AllIcons.General.Add) {
+            override fun actionPerformed(e: AnActionEvent) {
+                val availableTypes = getAvailableSubelements()
+                val popupGroup = DefaultActionGroup()
+                if (availableTypes.isEmpty()) {
+                    val noOp = object : AnAction("(no elements can be added here)") {
+                        override fun actionPerformed(e: AnActionEvent) {}
+                        override fun update(e: AnActionEvent) { e.presentation.isEnabled = false }
+                        override fun getActionUpdateThread() = ActionUpdateThread.BGT
+                    }
+                    popupGroup.add(noOp)
+                } else {
+                    for (subType in availableTypes) {
+                        val subAction = object : AnAction(subType.label) {
+                            override fun actionPerformed(e: AnActionEvent) { addSubelement(subType) }
+                            override fun getActionUpdateThread() = ActionUpdateThread.BGT
+                        }
+                        popupGroup.add(subAction)
+                    }
+                }
+                val inputEvent = e.inputEvent
+                val popup = JBPopupFactory.getInstance().createActionGroupPopup(
+                    null, popupGroup, e.dataContext,
+                    JBPopupFactory.ActionSelectionAid.SPEEDSEARCH,
+                    false
+                )
+                val sourceComponent = inputEvent?.component
+                if (sourceComponent != null) {
+                    popup.show(RelativePoint(sourceComponent, java.awt.Point(0, sourceComponent.height)))
+                } else {
+                    popup.showInBestPositionFor(e.dataContext)
+                }
+            }
+
+            override fun getActionUpdateThread() = ActionUpdateThread.BGT
         }
+
+        val removeAction = object : AnAction("Remove", "Remove selected node", AllIcons.General.Remove) {
+            override fun actionPerformed(e: AnActionEvent) { removeSelectedNode() }
+            override fun getActionUpdateThread() = ActionUpdateThread.BGT
+        }
+        val verifyAction = object : AnAction("Verify", "Verify query against server", AllIcons.Actions.Execute) {
+            override fun actionPerformed(e: AnActionEvent) { executeQuery(verify = true) }
+            override fun getActionUpdateThread() = ActionUpdateThread.BGT
+        }
+        val postAction = object : AnAction("Post", "Post query to server", AllIcons.Actions.Upload) {
+            override fun actionPerformed(e: AnActionEvent) { executeQuery(verify = false) }
+            override fun getActionUpdateThread() = ActionUpdateThread.BGT
+        }
+        val copyXmlAction = object : AnAction("Copy XML", "Copy generated XML to clipboard", AllIcons.Actions.Copy) {
+            override fun actionPerformed(e: AnActionEvent) {
+                copyToClipboard(buildXml())
+                val inputEvent = e.inputEvent
+                if (inputEvent != null) {
+                    val balloon = JBPopupFactory.getInstance()
+                        .createHtmlTextBalloonBuilder("Copied to clipboard", MessageType.INFO, null)
+                        .setFadeoutTime(2000)
+                        .createBalloon()
+                    balloon.show(
+                        RelativePoint.getCenterOf(inputEvent.component as JComponent),
+                        Balloon.Position.above
+                    )
+                }
+            }
+
+            override fun getActionUpdateThread() = ActionUpdateThread.BGT
+        }
+        val httpClientAction = object : AnAction("HTTP Client", "Open query as an IntelliJ HTTP request file", AllIcons.General.Web) {
+            override fun actionPerformed(e: AnActionEvent) { openInHttpClient() }
+            override fun getActionUpdateThread() = ActionUpdateThread.BGT
+        }
+
+        val toolbarGroup = DefaultActionGroup().apply {
+            add(addAction)
+            add(removeAction)
+            addSeparator()
+            add(verifyAction)
+            add(postAction)
+            addSeparator()
+            add(copyXmlAction)
+            add(httpClientAction)
+        }
+
+        val mainPanel = JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(4)
+        }
+        val toolbar = ActionManager.getInstance()
+            .createActionToolbar("KeyscriptQueryBuilder", toolbarGroup, true)
+        toolbar.targetComponent = mainPanel
 
         // Tree + props split
         val treeScroll = JBScrollPane(tree)
@@ -370,12 +451,11 @@ class QueryBuilderPanel(private val project: Project) {
             }
         }
 
-        component = JPanel(BorderLayout()).apply {
-            add(toolbar, BorderLayout.NORTH)
-            add(tabbedPane, BorderLayout.CENTER)
-            add(statusLabel, BorderLayout.SOUTH)
-            border = JBUI.Borders.empty(4)
-        }
+        mainPanel.add(toolbar.component, BorderLayout.NORTH)
+        mainPanel.add(tabbedPane, BorderLayout.CENTER)
+        mainPanel.add(statusLabel, BorderLayout.SOUTH)
+
+        component = mainPanel
     }
 
     private data class QueryNode(
@@ -388,33 +468,6 @@ class QueryBuilderPanel(private val project: Project) {
             return if (nonEmpty.isEmpty()) label
             else "$label (${nonEmpty.joinToString(", ") { "${it.key}=${it.value}" }})"
         }
-    }
-
-    /**
-     * Creates a dropdown button that shows available subelement types
-     * based on the currently selected tree node.
-     */
-    private fun createAddDropdownButton(): JButton {
-        val button = JButton("Add...")
-        button.addActionListener {
-            val popup = JPopupMenu()
-            val availableTypes = getAvailableSubelements()
-
-            if (availableTypes.isEmpty()) {
-                val item = JMenuItem("(no elements can be added here)")
-                item.isEnabled = false
-                popup.add(item)
-            } else {
-                for (subType in availableTypes) {
-                    val item = JMenuItem(subType.label)
-                    item.addActionListener { addSubelement(subType) }
-                    popup.add(item)
-                }
-            }
-
-            popup.show(button, 0, button.height)
-        }
-        return button
     }
 
     /**

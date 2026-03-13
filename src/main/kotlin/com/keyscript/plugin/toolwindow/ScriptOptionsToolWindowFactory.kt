@@ -4,17 +4,25 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.ui.TitledSeparator
+import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.content.ContentFactory
+import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
+import com.keyscript.plugin.services.AuthenticationService
 import com.keyscript.plugin.services.ProxyServerService
 import com.keyscript.plugin.services.ScriptParameterService
+import com.keyscript.plugin.services.SessionService
 import com.keyscript.plugin.settings.KeyscriptSettings
+import kotlinx.coroutines.runBlocking
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
 import java.net.HttpURLConnection
 import java.net.URI
 import javax.swing.*
@@ -64,35 +72,58 @@ class ScriptOptionsPanel(private val project: Project) {
     private val instanceCombo = JComboBox(settings.supportedInstances.toTypedArray()).apply {
         isEditable = true
         selectedItem = service.instance.ifEmpty { settings.getDefaultInstance() }
-        addActionListener { service.instance = selectedItem?.toString() ?: "" }
+        addActionListener {
+            val newInstance = selectedItem?.toString() ?: ""
+            val oldInstance = service.instance
+            service.instance = newInstance
+            // Auto-re-login when instance changes
+            if (newInstance.isNotBlank() && newInstance != oldInstance) {
+                switchInstance(newInstance)
+            }
+        }
     }
 
     // ─── Person Search ───────────────────────────
     private val personFilterCombo = JComboBox(personFilters.values.toTypedArray())
-    private val personSearchField = JBTextField(service.personSerial)
-    private val personSearchButton = JButton("Search")
+    private val personSearchField = JBTextField(service.personSerial).apply {
+        emptyText.text = "Enter search query..."
+    }
+    private val personSearchButton = JButton("Search").apply {
+        putClientProperty("JButton.buttonType", "segmented-only")
+    }
     private val personResultList = JBList<SearchResult>()
     private val personResultModel = DefaultListModel<SearchResult>()
     private val personResultScroll = JBScrollPane(personResultList).apply {
-        preferredSize = Dimension(Int.MAX_VALUE, 120)
-        maximumSize = Dimension(Int.MAX_VALUE, 120)
+        preferredSize = Dimension(Int.MAX_VALUE, JBUI.scale(120))
+        maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(120))
         isVisible = false
     }
 
     // ─── Account Search ──────────────────────────
     private val accountFilterCombo = JComboBox(accountFilters.values.toTypedArray())
-    private val accountSearchField = JBTextField(service.accountSerial)
-    private val accountSearchButton = JButton("Search")
+    private val accountSearchField = JBTextField(service.accountSerial).apply {
+        emptyText.text = "Enter search query..."
+    }
+    private val accountSearchButton = JButton("Search").apply {
+        putClientProperty("JButton.buttonType", "segmented-only")
+    }
     private val accountResultList = JBList<SearchResult>()
     private val accountResultModel = DefaultListModel<SearchResult>()
     private val accountResultScroll = JBScrollPane(accountResultList).apply {
-        preferredSize = Dimension(Int.MAX_VALUE, 120)
-        maximumSize = Dimension(Int.MAX_VALUE, 120)
+        preferredSize = Dimension(Int.MAX_VALUE, JBUI.scale(120))
+        maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(120))
         isVisible = false
     }
 
+    private val debugModeCheckbox = JBCheckBox("Debug Mode", service.debugMode).apply {
+        toolTipText = "When enabled, passes debug=true as a URL parameter to RunScript"
+        addActionListener { service.debugMode = isSelected }
+    }
+
     private val clearButton = JButton("Clear Parameters")
-    private val statusLabel = JBLabel(" ")
+    private val statusLabel = JBLabel(" ").apply {
+        foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
+    }
 
     lateinit var component: JComponent
         private set
@@ -139,68 +170,146 @@ class ScriptOptionsPanel(private val project: Project) {
             accountSearchField.text = ""
             service.personSerial = ""
             service.accountSerial = ""
+            debugModeCheckbox.isSelected = false
+            service.debugMode = false
             personResultScroll.isVisible = false
             accountResultScroll.isVisible = false
             statusLabel.text = "Parameters cleared"
             component.revalidate()
         }
 
-        // Build layout
+        component = buildLayout()
+    }
+
+    private fun buildLayout(): JComponent {
+        // ─── Instance Section ────────────────────
+        val instanceForm = FormBuilder.createFormBuilder()
+            .addLabeledComponent("Instance:", instanceCombo)
+            .panel
+
+        // ─── Person Section ──────────────────────
+        val personSearchRow = createSearchRow(personSearchField, personSearchButton)
+        val personForm = FormBuilder.createFormBuilder()
+            .addLabeledComponent("Filter:", personFilterCombo)
+            .addLabeledComponent("Search:", personSearchRow)
+            .panel
+
+        // Wrapper that includes form + dynamic result list
+        val personSection = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(personForm, BorderLayout.NORTH)
+            add(personResultScroll, BorderLayout.CENTER)
+        }
+
+        // ─── Account Section ─────────────────────
+        val accountSearchRow = createSearchRow(accountSearchField, accountSearchButton)
+        val accountForm = FormBuilder.createFormBuilder()
+            .addLabeledComponent("Filter:", accountFilterCombo)
+            .addLabeledComponent("Search:", accountSearchRow)
+            .panel
+
+        val accountSection = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(accountForm, BorderLayout.NORTH)
+            add(accountResultScroll, BorderLayout.CENTER)
+        }
+
+        // ─── Options Section ─────────────────────
+        val optionsPanel = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(debugModeCheckbox, BorderLayout.NORTH)
+        }
+
+        // ─── Footer (Clear + Status) ────────────
+        val footerPanel = JPanel(GridBagLayout()).apply {
+            isOpaque = false
+            val gbc = GridBagConstraints().apply {
+                gridx = 0
+                gridy = 0
+                anchor = GridBagConstraints.WEST
+                insets = JBUI.insetsBottom(4)
+            }
+            add(clearButton, gbc)
+            gbc.gridy = 1
+            gbc.insets = JBUI.emptyInsets()
+            add(statusLabel, gbc)
+        }
+
+        // ─── Assemble main panel ─────────────────
         val mainPanel = JPanel()
         mainPanel.layout = BoxLayout(mainPanel, BoxLayout.Y_AXIS)
-        mainPanel.border = JBUI.Borders.empty(8)
+        mainPanel.border = JBUI.Borders.empty(8, 12)
 
-        // Instance row
-        mainPanel.add(createLabeledRow("Instance:", instanceCombo))
-        mainPanel.add(Box.createVerticalStrut(8))
-        mainPanel.add(JSeparator())
-        mainPanel.add(Box.createVerticalStrut(8))
-
-        // Person section
-        mainPanel.add(JBLabel("Person Serial:"))
-        mainPanel.add(Box.createVerticalStrut(2))
-        mainPanel.add(createLabeledRow("Filter:", personFilterCombo))
-        mainPanel.add(Box.createVerticalStrut(2))
-        mainPanel.add(createSearchRow(personSearchField, personSearchButton))
-        mainPanel.add(personResultScroll)
-        mainPanel.add(Box.createVerticalStrut(8))
-        mainPanel.add(JSeparator())
-        mainPanel.add(Box.createVerticalStrut(8))
-
-        // Account section
-        mainPanel.add(JBLabel("Account Serial:"))
-        mainPanel.add(Box.createVerticalStrut(2))
-        mainPanel.add(createLabeledRow("Filter:", accountFilterCombo))
-        mainPanel.add(Box.createVerticalStrut(2))
-        mainPanel.add(createSearchRow(accountSearchField, accountSearchButton))
-        mainPanel.add(accountResultScroll)
-        mainPanel.add(Box.createVerticalStrut(8))
-
-        // Clear + status
-        mainPanel.add(clearButton)
-        mainPanel.add(Box.createVerticalStrut(4))
-        mainPanel.add(statusLabel)
-
-        // Fill remaining space
+        mainPanel.add(createTitledSection("Instance", instanceForm))
+        mainPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
+        mainPanel.add(createTitledSection("Person", personSection))
+        mainPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
+        mainPanel.add(createTitledSection("Account", accountSection))
+        mainPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
+        mainPanel.add(createTitledSection("Options", optionsPanel))
+        mainPanel.add(Box.createVerticalStrut(JBUI.scale(8)))
+        mainPanel.add(footerPanel.apply {
+            alignmentX = JComponent.LEFT_ALIGNMENT
+        })
         mainPanel.add(Box.createVerticalGlue())
 
-        component = JBScrollPane(mainPanel)
-    }
-
-    private fun createLabeledRow(label: String, field: JComponent): JPanel {
-        return JPanel(BorderLayout(4, 0)).apply {
-            add(JBLabel(label), BorderLayout.WEST)
-            add(field, BorderLayout.CENTER)
-            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+        return JBScrollPane(mainPanel).apply {
+            border = JBUI.Borders.empty()
+            viewportBorder = JBUI.Borders.empty()
         }
     }
 
+    /**
+     * Creates a titled section with a [TitledSeparator] header and indented content.
+     */
+    private fun createTitledSection(title: String, content: JComponent): JPanel {
+        return JPanel(BorderLayout()).apply {
+            isOpaque = false
+            alignmentX = JComponent.LEFT_ALIGNMENT
+            add(TitledSeparator(title), BorderLayout.NORTH)
+            // Indent content under the separator to align with the title text
+            val wrapper = JPanel(BorderLayout()).apply {
+                isOpaque = false
+                border = JBUI.Borders.emptyLeft(JBUI.scale(12))
+                add(content, BorderLayout.CENTER)
+            }
+            add(wrapper, BorderLayout.CENTER)
+        }
+    }
+
+    /**
+     * Creates a search row with a text field and attached button, using a
+     * BorderLayout so the field stretches and the button stays at a fixed width.
+     */
     private fun createSearchRow(field: JBTextField, button: JButton): JPanel {
-        return JPanel(BorderLayout(4, 0)).apply {
+        return JPanel(BorderLayout(JBUI.scale(4), 0)).apply {
+            isOpaque = false
             add(field, BorderLayout.CENTER)
             add(button, BorderLayout.EAST)
-            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
         }
+    }
+
+    // ─── Instance Switch ─────────────────────────
+
+    private fun switchInstance(instance: String) {
+        val session = SessionService.getInstance(project)
+        val creds = session.loadCredentials() ?: return
+        log.info("Switching instance to $instance — auto-re-login")
+        Thread({
+            try {
+                runBlocking {
+                    AuthenticationService.getInstance(project).login(
+                        username = creds.first,
+                        password = creds.second,
+                        instance = instance,
+                        deviceId = settings.deviceServiceUrl,
+                        deviceName = settings.deviceName
+                    )
+                }
+            } catch (e: Exception) {
+                log.warn("Instance switch login failed", e)
+            }
+        }, "keyscript-switch-instance").start()
     }
 
     // ─── Search Logic ────────────────────────────
@@ -250,6 +359,8 @@ class ScriptOptionsPanel(private val project: Project) {
         resultScroll: JBScrollPane
     ) {
         statusLabel.text = "Searching..."
+        personSearchButton.isEnabled = false
+        accountSearchButton.isEnabled = false
         resultModel.clear()
 
         Thread({
@@ -260,6 +371,8 @@ class ScriptOptionsPanel(private val project: Project) {
                 val results = parseSearchResults(response)
 
                 SwingUtilities.invokeLater {
+                    personSearchButton.isEnabled = true
+                    accountSearchButton.isEnabled = true
                     resultModel.clear()
                     results.forEach { resultModel.addElement(it) }
 
@@ -285,6 +398,8 @@ class ScriptOptionsPanel(private val project: Project) {
             } catch (e: Exception) {
                 log.warn("Search failed", e)
                 SwingUtilities.invokeLater {
+                    personSearchButton.isEnabled = true
+                    accountSearchButton.isEnabled = true
                     statusLabel.text = "Search error: ${e.message}"
                 }
             }

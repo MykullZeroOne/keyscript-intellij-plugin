@@ -27,7 +27,7 @@ class OpenInChromeAction : AnAction() {
         val project = e.project
         e.presentation.isEnabledAndVisible = project != null &&
             file != null &&
-            KeyscriptFileSupport.isKeyscriptFile(file)
+            KeyscriptFileSupport.isKeyscriptFile(file, project)
     }
 
     override fun actionPerformed(e: AnActionEvent) {

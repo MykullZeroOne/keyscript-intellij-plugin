@@ -17,7 +17,9 @@ class ScriptParameterService(private val project: Project) : PersistentStateComp
     class State {
         var personSerial: String = ""
         var accountSerial: String = ""
+        var workTaskSerial: String = ""
         var instance: String = ""
+        var debugMode: Boolean = false
     }
 
     private var myState = State()
@@ -33,9 +35,17 @@ class ScriptParameterService(private val project: Project) : PersistentStateComp
         get() = myState.accountSerial
         set(value) { myState.accountSerial = value }
 
+    var workTaskSerial: String
+        get() = myState.workTaskSerial
+        set(value) { myState.workTaskSerial = value }
+
     var instance: String
         get() = myState.instance
         set(value) { myState.instance = value }
+
+    var debugMode: Boolean
+        get() = myState.debugMode
+        set(value) { myState.debugMode = value }
 
     /**
      * Build the script parameters JSON structure matching the Electron IDE format.
@@ -57,6 +67,7 @@ class ScriptParameterService(private val project: Project) : PersistentStateComp
         val crscript = mutableMapOf<String, String>()
         crscript["personSerial"] = personSerial
         crscript["accountSerial"] = accountSerial
+        crscript["workTaskSerial"] = workTaskSerial
         crscript["scriptDefaultPanelId"] = "ks-script-panel"
         crscript["scriptPanelId"] = "ks-script-panel"
         crscript["hostPanelId"] = "ks-host-panel"

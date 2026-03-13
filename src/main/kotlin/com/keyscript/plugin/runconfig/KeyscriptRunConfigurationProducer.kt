@@ -24,7 +24,7 @@ class KeyscriptRunConfigurationProducer : LazyRunConfigurationProducer<Keyscript
         sourceElement: Ref<PsiElement>
     ): Boolean {
         val file = context.location?.virtualFile ?: return false
-        if (!KeyscriptFileSupport.isKeyscriptFile(file)) return false
+        if (!KeyscriptFileSupport.isKeyscriptFile(file, context.project)) return false
 
         configuration.scriptPath = RunKeyscriptService.resolveScriptPath(configuration.project, file)
         configuration.name = "Keyscript: ${file.nameWithoutExtension}"
@@ -36,7 +36,7 @@ class KeyscriptRunConfigurationProducer : LazyRunConfigurationProducer<Keyscript
         context: ConfigurationContext
     ): Boolean {
         val file = context.location?.virtualFile ?: return false
-        return KeyscriptFileSupport.isKeyscriptFile(file) &&
+        return KeyscriptFileSupport.isKeyscriptFile(file, context.project) &&
             configuration.scriptPath == RunKeyscriptService.resolveScriptPath(configuration.project, file)
     }
 }

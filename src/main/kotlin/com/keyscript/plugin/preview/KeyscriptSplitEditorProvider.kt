@@ -24,25 +24,25 @@ import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.keyscript.plugin.services.BundleService
+import com.keyscript.plugin.services.BundleWatchService
 import com.keyscript.plugin.services.KeyscriptFileSupport
 import com.keyscript.plugin.services.PreviewContentService
+import com.keyscript.plugin.services.SessionService
 import kotlinx.coroutines.runBlocking
 
 class KeyscriptSplitEditorProvider : TextEditorWithPreviewProvider(KeyscriptPreviewFileEditorProvider()) {
-    override fun accept(project: Project, file: VirtualFile): Boolean = isKeyscriptFile(file)
+    override fun accept(project: Project, file: VirtualFile): Boolean =
+        KeyscriptFileSupport.isKeyscriptFile(file, project)
 
     override fun createSplitEditor(firstEditor: TextEditor, secondEditor: FileEditor): FileEditor {
         return KeyscriptSplitEditor(firstEditor, secondEditor as KeyscriptPreviewFileEditor)
-    }
-
-    companion object {
-        fun isKeyscriptFile(file: VirtualFile): Boolean = KeyscriptFileSupport.isKeyscriptFile(file)
     }
 }
 
 private class KeyscriptPreviewFileEditorProvider : FileEditorProvider {
     override fun accept(project: Project, file: VirtualFile): Boolean =
-        KeyscriptSplitEditorProvider.isKeyscriptFile(file)
+        KeyscriptFileSupport.isKeyscriptFile(file, project)
 
     override fun createEditor(project: Project, file: VirtualFile): FileEditor =
         KeyscriptPreviewFileEditor(project, file)
@@ -95,14 +95,18 @@ class KeyscriptPreviewFileEditor(
     private val previewComponent = KeyscriptPreviewComponent(project)
     private val relativePath = RunKeyscriptService.resolveScriptPath(project, file)
     private val fileDocumentManager = FileDocumentManager.getInstance()
-    private val reloadTimer = Timer(300) {
-        previewComponent.reload()
-    }.apply {
-        isRepeats = false
-    }
+    private val reloadTimer: Timer
+    private lateinit var sessionListener: () -> Unit
     private var disposed = false
 
     init {
+        val debounceMs = if (BundleService.getInstance(project).hasBundleConfig()) 800 else 300
+        reloadTimer = Timer(debounceMs) {
+            previewComponent.reloadPreservingState()
+        }.apply {
+            isRepeats = false
+        }
+
         val multicaster = com.intellij.openapi.editor.EditorFactory.getInstance().eventMulticaster
         multicaster.addDocumentListener(object : DocumentListener {
             override fun documentChanged(event: DocumentEvent) {
@@ -116,6 +120,15 @@ class KeyscriptPreviewFileEditor(
                 }
             }
         }, this)
+
+        // Auto-load preview when session becomes available (handles case where
+        // editor opens before auto-login completes on startup)
+        sessionListener = {
+            if (!disposed && !previewComponent.hasLoadedUrl() && SessionService.getInstance(project).isLoggedIn) {
+                refreshFromCurrentState()
+            }
+        }
+        SessionService.getInstance(project).addListener(sessionListener)
     }
 
     override fun getComponent(): JComponent = previewComponent.component
@@ -160,7 +173,8 @@ class KeyscriptPreviewFileEditor(
         syncEditorContentOverride()
         ApplicationManager.getApplication().executeOnPooledThread {
             val result = runBlocking {
-                RunKeyscriptService.getInstance(project).preparePreview(relativePath)
+                val scriptPath = resolveBundleOutputPath() ?: relativePath
+                RunKeyscriptService.getInstance(project).preparePreview(scriptPath)
             }
 
             ApplicationManager.getApplication().invokeLater {
@@ -173,6 +187,29 @@ class KeyscriptPreviewFileEditor(
                     previewComponent.showMessage(result.error ?: "Preview unavailable.")
                 }
             }
+        }
+    }
+
+    /**
+     * If this file is inside a bundled project, auto-start watcher and return the bundle output path.
+     */
+    private fun resolveBundleOutputPath(): String? {
+        val bundleService = BundleService.getInstance(project)
+        val diskFile = java.io.File(file.path)
+        val bundleRoot = bundleService.findBundleRootFor(diskFile) ?: return null
+        val config = bundleService.readConfigFrom(bundleRoot) ?: return null
+
+        // Auto-start esbuild --watch
+        BundleWatchService.getInstance(project).ensureWatching(bundleRoot)
+
+        val outputFile = java.io.File(bundleRoot, config.outfile)
+        if (!outputFile.exists()) return null
+
+        val projectRoot = project.basePath ?: return config.outfile
+        return if (outputFile.absolutePath.startsWith(projectRoot)) {
+            outputFile.absolutePath.removePrefix(projectRoot).removePrefix("/")
+        } else {
+            config.outfile
         }
     }
 
@@ -192,7 +229,8 @@ class KeyscriptPreviewFileEditor(
         syncEditorContentOverride()
         ApplicationManager.getApplication().executeOnPooledThread {
             val result = runBlocking {
-                RunKeyscriptService.getInstance(project).preparePreview(relativePath)
+                val scriptPath = resolveBundleOutputPath() ?: relativePath
+                RunKeyscriptService.getInstance(project).preparePreview(scriptPath)
             }
             ApplicationManager.getApplication().invokeLater {
                 if (disposed) return@invokeLater
@@ -209,6 +247,7 @@ class KeyscriptPreviewFileEditor(
     override fun dispose() {
         disposed = true
         reloadTimer.stop()
+        SessionService.getInstance(project).removeListener(sessionListener)
         PreviewContentService.getInstance(project).removeScriptOverride(relativePath)
         previewComponent.dispose()
     }

@@ -18,6 +18,7 @@ import java.util.Timer
 import java.util.TimerTask
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import javax.swing.SwingUtilities
 
 /**
@@ -25,7 +26,8 @@ import javax.swing.SwingUtilities
  * Credentials are stored via IntelliJ PasswordSafe (replaces Electron safeStorage).
  *
  * Session lifecycle:
- * - Monitors session validity with periodic heartbeat checks
+ * - Monitors session validity with periodic heartbeat/keepalive checks
+ * - Sends keepalive pings to both proxy session and API session
  * - Auto-relogins when session expires if saved credentials exist
  * - Notifies listeners (status bar, session panel) on state changes
  */
@@ -36,10 +38,17 @@ class SessionService(private val project: Project) : Disposable {
     private var heartbeatTimer: Timer? = null
     private val reloginInProgress = AtomicBoolean(false)
 
+    /** Tracks when the last successful keepalive/activity occurred */
+    private val lastSuccessfulPing = AtomicLong(0L)
+
+    /** Counts consecutive heartbeat failures to avoid single-failure false positives */
+    @Volatile
+    private var consecutiveFailures = 0
+
     /** JSESSIONID from proxy login — used for preview/run through the proxy */
     var jsessionId: String = ""
         private set
-    /** JSESSIONID from direct Keystone API login — used for deploy/search API calls */
+    /** Session ID from direct Keystone API login — used for deploy/search API calls */
     var keystoneApiSessionId: String = ""
         private set
     var username: String = ""
@@ -50,6 +59,15 @@ class SessionService(private val project: Project) : Disposable {
 
     val isLoggedIn: Boolean get() = jsessionId.isNotEmpty()
 
+    /**
+     * Returns true if the current session is connected to a live/production database.
+     * The convention is that live database names end with "LIV".
+     */
+    fun isLiveDatabase(): Boolean {
+        val dbName = loginData["databaseName"] ?: return false
+        return dbName.trim().uppercase().endsWith("LIV")
+    }
+
     /** The session ID to use for direct Keystone API calls (falls back to proxy session) */
     val apiSessionId: String get() = keystoneApiSessionId.ifEmpty { jsessionId }
 
@@ -57,6 +75,8 @@ class SessionService(private val project: Project) : Disposable {
         this.jsessionId = jsessionId
         this.username = username
         this.loginData = loginData
+        this.consecutiveFailures = 0
+        this.lastSuccessfulPing.set(System.currentTimeMillis())
         log.info("Session established for $username: ${jsessionId.take(8)}...")
         notifyListeners()
         startHeartbeat()
@@ -74,6 +94,7 @@ class SessionService(private val project: Project) : Disposable {
         username = ""
         instance = ""
         loginData = emptyMap()
+        consecutiveFailures = 0
         stopHeartbeat()
         notifyListeners()
         if (wasLoggedIn) {
@@ -94,9 +115,11 @@ class SessionService(private val project: Project) : Disposable {
         val savedInstance = instance
         val creds = loadCredentials()
 
-        // Clear current session state first so UI shows logged-out
-        val oldJsessionId = jsessionId
+        // Clear current session state so UI shows logged-out
         jsessionId = ""
+        keystoneApiSessionId = ""
+        consecutiveFailures = 0
+        stopHeartbeat()
         notifyListeners()
 
         if (creds == null) {
@@ -110,8 +133,15 @@ class SessionService(private val project: Project) : Disposable {
         Thread({
             try {
                 val authService = AuthenticationService.getInstance(project)
+                val settings = KeyscriptSettings.getInstance()
                 val result = runBlocking {
-                    authService.login(creds.first, creds.second, savedInstance)
+                    authService.login(
+                        username = creds.first,
+                        password = creds.second,
+                        instance = savedInstance.ifEmpty { settings.getDefaultInstance() },
+                        deviceId = settings.deviceServiceUrl,
+                        deviceName = settings.deviceName
+                    )
                 }
                 if (result.success) {
                     log.info("Re-login successful for ${result.userName}")
@@ -129,6 +159,15 @@ class SessionService(private val project: Project) : Disposable {
         }, "keyscript-relogin").start()
     }
 
+    /**
+     * Record that an API call succeeded, resetting failure counter.
+     * Called from KeystoneApiClient and DeploymentService on successful responses.
+     */
+    fun recordSuccessfulActivity() {
+        consecutiveFailures = 0
+        lastSuccessfulPing.set(System.currentTimeMillis())
+    }
+
     fun addListener(listener: () -> Unit) {
         listeners.add(listener)
     }
@@ -137,15 +176,20 @@ class SessionService(private val project: Project) : Disposable {
         listeners.remove(listener)
     }
 
-    // ─── Session heartbeat ─────────────────────────────
+    // ─── Session heartbeat & keepalive ─────────────────────────────
 
     private fun startHeartbeat() {
         stopHeartbeat()
         heartbeatTimer = Timer("keyscript-heartbeat", true).apply {
-            // Check session every 2 minutes
+            // Send keepalive every 45 seconds — frequent enough to prevent
+            // server-side session timeout (typically 2-5 minutes on Keystone)
             scheduleAtFixedRate(object : TimerTask() {
                 override fun run() {
-                    checkSessionValid()
+                    try {
+                        keepAlive()
+                    } catch (e: Exception) {
+                        log.warn("Heartbeat task error", e)
+                    }
                 }
             }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS)
         }
@@ -157,17 +201,48 @@ class SessionService(private val project: Project) : Disposable {
     }
 
     /**
-     * Lightweight session check — sends a GET to UserLogin on Keystone.
-     * If the session is invalid, Keystone returns an error or redirect.
+     * Sends keepalive pings to both the proxy session and the API session.
+     * If both fail consecutively, triggers re-login.
      */
-    private fun checkSessionValid() {
+    private fun keepAlive() {
         if (!isLoggedIn) return
 
-        try {
+        val proxyAlive = keepAliveProxy()
+        val apiAlive = keepAliveApi()
+
+        if (proxyAlive || apiAlive) {
+            consecutiveFailures = 0
+            lastSuccessfulPing.set(System.currentTimeMillis())
+        } else {
+            consecutiveFailures++
+            log.info("Keepalive failed (consecutive failures: $consecutiveFailures)")
+
+            // Require 2 consecutive failures before declaring session expired,
+            // to avoid false positives from transient network blips
+            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                log.info("Session appears expired after $consecutiveFailures consecutive keepalive failures")
+                handleSessionExpired()
+            }
+        }
+    }
+
+    /**
+     * Keepalive for the proxy/JSESSIONID session.
+     * Sends a lightweight GET to the Keystone server via proxy endpoint.
+     * Returns true if the session appears valid.
+     */
+    private fun keepAliveProxy(): Boolean {
+        if (jsessionId.isEmpty()) return false
+
+        return try {
             val settings = KeyscriptSettings.getInstance()
             val inst = instance.ifEmpty { settings.getDefaultInstance() }
-            val baseUrl = settings.getProxyUrl()
-            val url = if (baseUrl.startsWith("http")) "$baseUrl/$inst/UserLogin" else "https://$baseUrl/$inst/UserLogin"
+            val proxyUrl = settings.getProxyUrl()
+            val url = if (proxyUrl.startsWith("http")) {
+                "$proxyUrl/$inst/UserLogin"
+            } else {
+                "https://$proxyUrl/$inst/UserLogin"
+            }
 
             val conn = URI(url).toURL().openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
@@ -183,15 +258,83 @@ class SessionService(private val project: Project) : Disposable {
                 conn.errorStream?.bufferedReader()?.readText() ?: ""
             }
 
-            // Check if session is still valid
-            val hasJsession = body.contains("JSESSIONID") || body.contains("userName")
-            if (status == 401 || status == 403 || (!hasJsession && status != 200)) {
-                log.info("Heartbeat: session appears expired (status=$status)")
-                handleSessionExpired()
+            // 401/403 means session is definitely expired
+            if (status == 401 || status == 403) {
+                log.info("Proxy keepalive: session expired (HTTP $status)")
+                return false
             }
+
+            // Check for session indicators in response
+            val hasSession = body.contains("JSESSIONID") || body.contains("userName") ||
+                    body.contains("\"success\"")
+
+            // If 200 but no session indicators, the session likely expired
+            // and Keystone returned a login form instead
+            if (status == 200 && !hasSession && body.contains("<form", ignoreCase = true)) {
+                log.info("Proxy keepalive: got login form — session expired")
+                return false
+            }
+
+            // 200 with session data, or 302 redirect (still has session) = OK
+            log.debug("Proxy keepalive OK (status=$status)")
+            true
         } catch (e: Exception) {
-            // Network error — don't treat as expired, just log
-            log.info("Heartbeat check failed (network): ${e.message}")
+            // Network error — don't treat as expired, could be transient
+            log.info("Proxy keepalive network error: ${e.message}")
+            true // assume OK on network errors (counted separately)
+        }
+    }
+
+    /**
+     * Keepalive for the direct Keystone API session.
+     * Sends a lightweight "view" query that touches the session without side effects.
+     * Returns true if the session appears valid.
+     */
+    private fun keepAliveApi(): Boolean {
+        val apiSid = keystoneApiSessionId
+        if (apiSid.isEmpty()) return false
+
+        return try {
+            val settings = KeyscriptSettings.getInstance()
+            val inst = instance.ifEmpty { settings.getDefaultInstance() }
+            val url = "${settings.getKeystoneApiBaseUrl()}/$inst"
+
+            // Lightweight query — just a search with minimal results to keep session alive
+            val keepAliveJson = """{"query":{"\u0024attr":{"sessionId":"$apiSid"},"sequence":{"transaction":{"step":{"search":{"tableName":"SCRIPT","filterName":"BY_DESCRIPTION","returnLimit":1,"parameter":{"columnName":"DESCRIPTION","contents":"__keepalive__"}}}}}}}"""
+
+            val conn = URI(url).toURL().openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Cookie", "JSESSIONID=$apiSid")
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 10_000
+            conn.doOutput = true
+            conn.outputStream.use { it.write(keepAliveJson.toByteArray()) }
+
+            val status = conn.responseCode
+            val body = try {
+                conn.inputStream.bufferedReader().readText()
+            } catch (_: Exception) {
+                conn.errorStream?.bufferedReader()?.readText() ?: ""
+            }
+
+            if (status == 401 || status == 403) {
+                log.info("API keepalive: session expired (HTTP $status)")
+                return false
+            }
+
+            // Check for session expiry indicators in response body
+            val lower = body.lowercase()
+            if (lower.contains("session") && (lower.contains("expired") || lower.contains("invalid"))) {
+                log.info("API keepalive: session expired (response body)")
+                return false
+            }
+
+            log.debug("API keepalive OK (status=$status)")
+            true
+        } catch (e: Exception) {
+            log.info("API keepalive network error: ${e.message}")
+            true // assume OK on network errors
         }
     }
 
@@ -236,7 +379,11 @@ class SessionService(private val project: Project) : Disposable {
     }
 
     companion object {
-        private const val HEARTBEAT_INTERVAL_MS = 2L * 60 * 1000 // 2 minutes
+        /** Keepalive ping every 45 seconds — well within typical Keystone session TTL */
+        private const val HEARTBEAT_INTERVAL_MS = 45L * 1000
+
+        /** Number of consecutive failures before treating session as expired */
+        private const val MAX_CONSECUTIVE_FAILURES = 2
 
         fun getInstance(project: Project): SessionService =
             project.getService(SessionService::class.java)

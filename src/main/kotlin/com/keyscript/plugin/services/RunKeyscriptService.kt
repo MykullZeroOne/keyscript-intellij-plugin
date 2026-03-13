@@ -31,7 +31,15 @@ class RunKeyscriptService(private val project: Project) {
             return RunResult(success = false, error = "Please login to Keystone first (Keyscript > Login)")
         }
 
-        val proxyBase = ProxyServerService.getInstance(project).getProxyBaseUrl()
+        // Ensure project path is always set on the proxy before building the URL
+        val proxyService = ProxyServerService.getInstance(project)
+        val proxyBase = proxyService.getProxyBaseUrl()
+        val projectDir = project.basePath ?: ""
+        if (proxyService.activeProjectPath != projectDir) {
+            proxyService.activeProjectPath = projectDir
+            log.info("preparePreview: updated activeProjectPath to '$projectDir'")
+        }
+        log.info("preparePreview: scriptPath=$scriptPath, activeProjectPath=${proxyService.activeProjectPath}, projectDir=$projectDir")
         val params = ScriptParameterService.getInstance(project)
         val instance = params.instance.ifEmpty { KeyscriptSettings.getInstance().getDefaultInstance() }
 
@@ -64,10 +72,10 @@ class RunKeyscriptService(private val project: Project) {
     }
 
     suspend fun runScript(scriptFile: VirtualFile): RunResult {
-        if (!KeyscriptFileSupport.isKeyscriptFile(scriptFile)) {
+        if (!KeyscriptFileSupport.isKeyscriptFile(scriptFile, project)) {
             return RunResult(
                 success = false,
-                error = "This file is not marked for Keyscript preview. Add ${KeyscriptFileSupport.markerHint()} near the top of the file."
+                error = "This file is not a Keyscript file. Enable Keyscript in Settings > Languages & Frameworks > Keyscript IDE, or add ${KeyscriptFileSupport.markerHint()} near the top of the file."
             )
         }
 
@@ -88,10 +96,10 @@ class RunKeyscriptService(private val project: Project) {
 
     suspend fun runScript(scriptPath: String): RunResult {
         val scriptFile = findVirtualFile(scriptPath)
-        if (scriptFile != null && !KeyscriptFileSupport.isKeyscriptFile(scriptFile)) {
+        if (scriptFile != null && !KeyscriptFileSupport.isKeyscriptFile(scriptFile, project)) {
             return RunResult(
                 success = false,
-                error = "This file is not marked for Keyscript preview. Add ${KeyscriptFileSupport.markerHint()} near the top of the file."
+                error = "This file is not a Keyscript file. Enable Keyscript in Settings > Languages & Frameworks > Keyscript IDE, or add ${KeyscriptFileSupport.markerHint()} near the top of the file."
             )
         }
 
@@ -113,9 +121,8 @@ class RunKeyscriptService(private val project: Project) {
 
     /**
      * If the script is inside a project with keyscript.bundle.json,
-     * return the bundle output path (e.g. "examples/react-keystone/dist/bundle.js")
-     * relative to the project root. The bundle must already be built (npm run build/watch).
-     * Returns null for non-bundled projects.
+     * auto-start esbuild --watch if needed, then return the bundle output path
+     * relative to the project root. Returns null for non-bundled projects.
      */
     private fun resolveBundleOutputPath(scriptFile: VirtualFile): String? {
         val bundleService = BundleService.getInstance(project)
@@ -123,9 +130,24 @@ class RunKeyscriptService(private val project: Project) {
         val bundleRoot = bundleService.findBundleRootFor(diskFile) ?: return null
         val config = bundleService.readConfigFrom(bundleRoot) ?: return null
 
+        // Auto-start esbuild --watch if not already running
+        val watchService = BundleWatchService.getInstance(project)
         val outputFile = java.io.File(bundleRoot, config.outfile)
+        if (!outputFile.exists() || !watchService.isWatching(bundleRoot)) {
+            log.info("Starting esbuild watch for bundled project at ${bundleRoot.absolutePath}")
+            if (!watchService.ensureWatching(bundleRoot)) {
+                log.warn("Failed to start esbuild watch — trying one-shot bundle")
+                // Fallback: try a one-shot bundle
+                val result = bundleService.bundle(config = config, bundleRoot = bundleRoot)
+                if (!result.success) {
+                    log.warn("Bundle failed: ${result.error}")
+                    return null
+                }
+            }
+        }
+
         if (!outputFile.exists()) {
-            log.warn("Bundle output not found: ${outputFile.absolutePath}. Run 'npm run build' first.")
+            log.warn("Bundle output not found after watch/build: ${outputFile.absolutePath}")
             return null
         }
 

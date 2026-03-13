@@ -1,16 +1,25 @@
 package com.keyscript.plugin.toolwindow
 
+import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
-import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.content.ContentFactory
 import com.intellij.util.ui.JBUI
 import com.keyscript.plugin.services.NetworkMonitorService
 import java.awt.BorderLayout
 import java.awt.Font
-import javax.swing.*
+import javax.swing.JComponent
+import javax.swing.JPanel
+import javax.swing.JTextArea
+import javax.swing.SwingUtilities
 
 /**
  * Console tool window that displays JCEF console.log output captured from the preview.
@@ -35,20 +44,26 @@ class ConsolePanel(project: Project) {
     val component: JComponent
 
     init {
-        val toolbar = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
-            add(JButton("Clear").apply {
-                addActionListener {
-                    textArea.text = ""
-                }
-            })
-        }
-
-        component = JPanel(BorderLayout()).apply {
-            add(toolbar, BorderLayout.NORTH)
-            add(JBScrollPane(textArea), BorderLayout.CENTER)
+        val mainPanel = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty()
         }
+
+        val clearAction = object : AnAction("Clear Console", "Clear all console output", AllIcons.Actions.GC) {
+            override fun actionPerformed(e: AnActionEvent) {
+                textArea.text = ""
+            }
+
+            override fun getActionUpdateThread() = ActionUpdateThread.BGT
+        }
+
+        val group = DefaultActionGroup(clearAction)
+        val toolbar = ActionManager.getInstance().createActionToolbar("KeyscriptConsole", group, true)
+        toolbar.targetComponent = mainPanel
+
+        mainPanel.add(toolbar.component, BorderLayout.NORTH)
+        mainPanel.add(JBScrollPane(textArea), BorderLayout.CENTER)
+
+        component = mainPanel
 
         val monitor = NetworkMonitorService.getInstance(project)
         monitor.getEvents()
