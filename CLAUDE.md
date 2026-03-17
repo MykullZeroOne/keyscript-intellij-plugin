@@ -1,4 +1,4 @@
-# Keyscript IDE IntelliJ Plugin
+# Keyscript IDE — IntelliJ Plugin
 
 Development environment for Keystone script creation, ported from the original Electron-based Keyscript IDE to IntelliJ IDEA. Provides a complete IDE experience with JCEF browser preview, embedded proxy server, session authentication, CR framework code completions, and integrated data tools for Keystone table management and query building.
 
@@ -11,6 +11,7 @@ Development environment for Keystone script creation, ported from the original E
 | JVM Runtime | JBR (JetBrains Runtime) | 21 | Managed by IntelliJ Platform SDK |
 | Build System | Gradle | 8.11.1 | Plugin build and packaging |
 | HTTP Server | Ktor | 2.3.12 | Lightweight embedded proxy server (CIO engine—no Netty dependency) |
+| Browser | JCEF | 2025.1 | Java Chromium Embedded Framework for split-editor preview |
 | JSON | Jackson | 2.17.2 | Serialization/deserialization for API payloads |
 | IDE Platform SDK | IntelliJ Platform | 2025.1.3 | SDK and bundled plugins (Java, JavaScript) |
 
@@ -40,12 +41,23 @@ cd keyscript-intellij-plugin
 # Output: build/distributions/keyscript-intellij-plugin-2.0.0.zip
 ```
 
-### First Run
-1. In sandbox IDE, open/create a Keyscript project
+### First Run in Sandbox IDE
+1. Open or create a Keyscript project
 2. Go to **Settings > Keyscript IDE** (application-level settings)
-3. Configure Keystone server endpoint and instance names
-4. Click the status bar widget ("KS: Not Logged In") to authenticate
-5. Tool windows appear in right panel (Workspace) and bottom (Data Tools, Diagnostics)
+3. Configure Keystone server endpoint (e.g., `keystonedev.example.com:8443`)
+4. Configure supported instances (comma-separated, e.g., `Development,Test,Production`)
+5. Click the status bar widget ("KS: Not Logged In") to authenticate
+6. Tool windows appear in right panel (Workspace) and bottom (Data Tools, Diagnostics)
+7. Proxy server starts automatically on first script run
+
+### Project Auto-Detection
+The plugin automatically detects Keyscript projects containing ANY of:
+- `keyscript.bundle.json` at project root
+- A `.keyscript` marker file
+- Any `*.keyscript.js` file
+- Any `*.js` file with `// @keyscript` in the first 5 lines
+
+Zero plugin overhead in non-Keyscript projects (project detection gate prevents activation).
 
 ## Project Structure
 
@@ -104,76 +116,119 @@ keyscript-intellij-plugin/
 
 ## Architecture Overview
 
-The plugin uses a **service-oriented architecture** with clear separation of concerns:
+The plugin uses a **service-oriented architecture** with clear separation of concerns. The core innovation is an **embedded Ktor HTTP proxy** that bridges the JCEF preview browser and the Keystone server.
 
-### Proxy Pattern
-The core innovation is an **embedded Ktor HTTP proxy** that bridges the JCEF preview browser and Keystone server:
+### The Proxy Pattern (Why This Matters)
 
-1. Scripts run inside a JCEF iframe at `http://localhost:{port}/{instance}/Keyscript_IDE/RunScript`
+In a browser, cross-origin requests are blocked by CORS unless the server explicitly allows them. The original Electron IDE avoided this by running a local proxy. This plugin replicates that architecture:
+
+```
+┌─────────────┐         ┌──────────────────┐         ┌────────────┐
+│  JCEF iframe│         │  Ktor Proxy      │         │  Keystone  │
+│ (localhost) │────────▶│ (cookie inject)  │────────▶│  Server    │
+│             │◀────────│  (routes, logs)  │◀────────│  (API)     │
+└─────────────┘         └──────────────────┘         └────────────┘
+  Script calls          Middleware adds
+  DirectXML()           JSESSIONID + logs
+```
+
+### How It Works
+
+1. Scripts run in a JCEF iframe at `http://localhost:{port}/{instance}/Keyscript_IDE/RunScript`
 2. The CR framework makes AJAX calls (e.g., `DirectXMLPostJSON`) to relative URLs
 3. The proxy intercepts these requests, injects the `JSESSIONID` cookie, and forwards to Keystone
 4. Responses flow back through the proxy to the iframe
-5. Network events are captured for the Diagnostics panel
+5. Network events are captured and displayed in the Diagnostics panel
 
-This replicates the original Electron IDE architecture without requiring browser CORS workarounds.
+This approach **avoids CORS workarounds entirely** and provides transparent session management.
 
 ### Service Lifecycle
+
 - **Project Detection**: Plugin auto-activates only for Keyscript projects (zero overhead in non-Keyscript projects)
-- **Lazy Initialization**: Proxy server starts on first run, not at IDE startup
-- **Session Management**: SessionService maintains JSESSIONID and monitors session validity with periodic heartbeat checks
+- **Lazy Initialization**: Proxy server starts on first script run, not at IDE startup
+- **Session Management**: `SessionService` maintains `JSESSIONID` and monitors validity with periodic heartbeat checks
 - **Credential Storage**: Uses IntelliJ PasswordSafe (secure, OS-integrated; replaces Electron's safeStorage)
+- **Thread Safety**: All UI updates happen on the EDT (Event Dispatch Thread); background tasks use `runAsync`
 
 ### Tool Windows
-Three grouped tool windows only appear in Keyscript projects:
-- **Workspace** (right): Run Options (script parameters) + Session tab
-- **Data Tools** (bottom): Search, Table Browser, Query Builder tabs
-- **Diagnostics** (bottom): Console output + Network Monitor
 
-### Key Modules
+Three grouped tool windows appear only in Keyscript projects:
 
-| Module | Purpose | Key Files |
-|--------|---------|-----------|
-| **services** | Core business logic, state management | SessionService, AuthenticationService, ProxyServerService, KeystoneApiClient, RunKeyscriptService |
-| **proxy** | HTTP proxy server routing & middleware | KtorProxyServer, ProxyRoutes, CookieInjector |
-| **runconfig** | Run configurations, gutter icons, execution | KeyscriptRunConfigurationType, KeyscriptProgramRunner, KeyscriptRunLineMarkerContributor |
-| **completion** | Code completions & live templates | CRCompletionContributor, CRLibraryProvider, KeyscriptTemplateContext |
-| **preview** | JCEF split-editor browser | KeyscriptSplitEditorProvider, JCEFBrowserPanel |
-| **toolwindow** | UI panels for tool windows | WorkspacePanel, TableBrowserPanel, QueryBuilderPanel, DiagnosticsPanel |
-| **settings** | Application & project configuration | KeyscriptSettings, KeyscriptSettingsConfigurable |
-| **project** | New Project wizard | KeyscriptModuleBuilder, project templates |
-| **actions** | Menu actions | LoginAction, RunScriptAction, DeployAction, OpenInBrowserAction |
-| **statusbar** | Login status indicator | LoginStatusBarWidget, LoginStatusBarWidgetFactory |
+| Window | Location | Contents |
+|--------|----------|----------|
+| **Workspace** | Right | Run Options (script parameters) + Session info |
+| **Data Tools** | Bottom | Search, Table Browser, Query Builder tabs |
+| **Diagnostics** | Bottom | Console output + Network Monitor |
+
+## Services (14 Core Components)
+
+| Service | Purpose | Key Patterns |
+|---------|---------|--------------|
+| **SessionService** | JSESSIONID lifecycle, heartbeat, auto-relogin | Listener pattern, `runAsync` |
+| **AuthenticationService** | Login/logout, credential validation | PasswordSafe integration |
+| **ProxyServerService** | Ktor server lifecycle, lazy startup | Disposable pattern, singleton |
+| **KeystoneApiClient** | Direct API calls, request/response handling | Jackson deserialization, error handling |
+| **PreviewContentService** | HTML/iframe content generation | Template rendering |
+| **NetworkMonitorService** | Captures HTTP request/response events | Event log, filtering |
+| **RunKeyscriptService** | Script execution lifecycle, result handling | Process management |
+| **ScriptParameterService** | Script parameter UI & storage | PersistentStateComponent |
+| **WorkspaceUiService** | Workspace panel state management | Listener notifications |
+| **KeyscriptProjectDetector** | Auto-detection of Keyscript projects | File pattern matching |
+| **KeyscriptProjectService** | Project-wide initialization & lifecycle | Disposable, lazy gates |
+| **DeploymentService** | Deploy scripts to Keystone | API integration |
+| **BundleService** | `keyscript.bundle.json` parsing & management | Jackson configuration |
+| **KeyscriptFileSupport** | File type & icon registration | Language support |
+
+## Key Modules
+
+| Module | Location | Purpose | When to Modify |
+|--------|----------|---------|----------------|
+| **services** | `services/` | Core business logic & state management | Adding features, session management, API integration |
+| **proxy** | `proxy/` | HTTP proxy routing, middleware, cookie injection | Changing proxy routes, request/response interception |
+| **runconfig** | `runconfig/` | Run configurations, gutter icons, script execution | Modifying how scripts are executed |
+| **completion** | `completion/` | Code completions & live templates for CR framework | Adding new CR APIs or templates |
+| **preview** | `preview/` | JCEF split-editor browser preview | Changing preview behavior, browser integration |
+| **toolwindow** | `toolwindow/` | UI panels for all three tool windows | Modifying UI, adding new panels |
+| **settings** | `settings/` | Application & project configuration UI | Adding new settings, persistence logic |
+| **project** | `project/` | New Project wizard, templates, module builder | Adding new project templates |
+| **actions** | `actions/` | Menu actions (Login, Run, Deploy, etc.) | Adding new menu actions, shortcuts |
+| **statusbar** | `statusbar/` | Login status indicator widget | Changing status bar display |
 
 ## Development Guidelines
 
 ### Code Style
 
 **File Naming:**
-- Kotlin files use PascalCase (e.g., `SessionService.kt`, `LoginStatusBarWidgetFactory.kt`)
-- Packages are lowercase (e.g., `actions`, `completion`, `services`)
-- Service implementations follow pattern: `[Name]Service.kt`
+- Kotlin files use **PascalCase** (e.g., `SessionService.kt`, `LoginStatusBarWidgetFactory.kt`)
+- Packages are **lowercase** (e.g., `actions`, `completion`, `services`)
+- Service files follow pattern: `[Name]Service.kt`
 - UI components: `[Name]Panel.kt` or `[Name]ToolWindowFactory.kt`
 
-**Code Naming:**
+**Code Naming (Inside Files):**
 - **Classes/Interfaces**: PascalCase (`class SessionService`, `interface IProxyServer`)
 - **Functions**: camelCase (`fun startSession()`, `fun handleLogin()`)
 - **Variables**: camelCase (`val project: Project`, `var sessionId: String`)
 - **Constants**: SCREAMING_SNAKE_CASE (`val MAX_RETRIES = 3`, `val DEFAULT_PORT = 3000`)
-- **Private fields**: Underscore prefix (`_listeners`, `_statusBar`) or use `private` modifier
-- **Boolean variables**: `is`/`has` prefix (`isLoggedIn`, `hasValidSession`)
+- **Private fields**: `private` modifier or underscore prefix (`_listeners`, `_statusBar`)
+- **Boolean variables**: `is`/`has`/`should` prefix (`isLoggedIn`, `hasValidSession`, `shouldUpdate`)
 
 **Import Order:**
 1. IntelliJ platform imports (`com.intellij.*`)
-2. Kotlin standard library imports (`kotlin.*`, `kotlinx.*`)
+2. Kotlin standard library (`kotlin.*`, `kotlinx.*`)
 3. Third-party imports (`io.ktor.*`, `com.fasterxml.*`)
-4. Internal plugin imports (from `com.keyscript.plugin.*`)
-5. Type imports (if using `import type` syntax)
+4. Internal plugin imports (`com.keyscript.plugin.*`)
 
 **Service Declaration Pattern:**
 ```kotlin
-@Service(Service.Level.PROJECT)  // or Service.Level.APP for application services
+@Service(Service.Level.PROJECT)  // PROJECT-scoped or APP for application services
 class MyService(private val project: Project) : Disposable {
-    // Implementation
+    companion object {
+        fun getInstance(project: Project): MyService = project.getService(MyService::class.java)
+    }
+
+    override fun dispose() {
+        // Cleanup here
+    }
 }
 ```
 
@@ -227,74 +282,55 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`
 | `./gradlew clean` | Clean build artifacts |
 | `./gradlew test` | Run unit tests (none configured yet) |
 
-## Configuration Files
+## Configuration
 
-### Application Settings (`Settings > Keyscript IDE`)
+### Application Settings (Settings > Keyscript IDE)
 ```kotlin
-// KeyscriptSettings (application-level singleton)
-var keystoneServer: String           // Proxy endpoint URL (e.g., keystonedev.example.com:8443)
-var supportedInstances: String       // Comma-separated list (e.g., Development,Test,Production)
-var proxyPort: Int                   // Local proxy server port (default: 3000)
+var keystoneServer: String           // Proxy endpoint (e.g., keystonedev.example.com:8443)
+var supportedInstances: String       // Comma-separated (e.g., Development,Test,Production)
+var proxyPort: Int                   // Local proxy port (default: 3000)
 var servicePort: Int                 // Device service port (default: 1337)
 ```
 
-### Project Settings (`Settings > Languages & Frameworks > Keyscript IDE`)
+### Project Settings (Settings > Languages & Frameworks > Keyscript IDE)
 ```kotlin
-// KeyscriptProjectConfigurable (per-project)
 var enabled: Boolean                 // Enable/disable Keyscript support for this project
 ```
 
-### Auto-Detection
-Projects are automatically detected if they contain:
-- `keyscript.bundle.json` at project root
-- A `.keyscript` marker file
-- Any `*.keyscript.js` file
-- Any `*.js` file with `// @keyscript` in the first 5 lines
-
 ## Extension Points (plugin.xml)
-
-The plugin registers these IntelliJ extension points:
 
 | Extension Point | Implementation | Purpose |
 |-----------------|----------------|---------|
 | `applicationService` | KeyscriptSettings | Application-level configuration |
-| `projectService` | SessionService, AuthenticationService, etc. | Project-scoped services (14 total) |
-| `projectConfigurable` | KeyscriptProjectConfigurable | Settings UI for per-project config |
-| `applicationConfigurable` | KeyscriptSettingsConfigurable | Settings UI for application config |
-| `toolWindow` | KeyscriptWorkspaceToolWindowFactory, etc. | Tool window factories (3 total) |
+| `projectService` | SessionService, AuthenticationService, etc. (14 total) | Project-scoped services |
+| `projectConfigurable` | KeyscriptProjectConfigurable | Per-project settings UI |
+| `applicationConfigurable` | KeyscriptSettingsConfigurable | Application settings UI |
+| `toolWindow` | 3 tool window factories | Tool windows for this project type |
 | `configurationType` | KeyscriptRunConfigurationType | Run configuration type |
-| `programRunner` | KeyscriptProgramRunner | Execution handler |
-| `runLineMarkerContributor` | KeyscriptRunLineMarkerContributor | Gutter play button for Keyscript files |
+| `programRunner` | KeyscriptProgramRunner | Script execution handler |
+| `runLineMarkerContributor` | KeyscriptRunLineMarkerContributor | Gutter play button |
 | `completion.contributor` | CRCompletionContributor | Code completions for CR framework |
 | `fileEditorProvider` | KeyscriptSplitEditorProvider | Split-editor browser preview |
-| `liveTemplateContext` | KeyscriptTemplateContext | Live template scope (KEYSCRIPT_JS) |
-| `statusBarWidgetFactory` | LoginStatusBarWidgetFactory | Status bar login widget |
+| `liveTemplateContext` | KeyscriptTemplateContext | Live template scope |
+| `statusBarWidgetFactory` | LoginStatusBarWidgetFactory | Status bar widget |
 | `moduleBuilder` | KeyscriptModuleBuilder | New Project wizard |
 
-## Dependencies & Versions
-
-See @build.gradle.kts for full dependency tree:
-- **Ktor Server**: 2.3.12 (core, CIO, CORS, content negotiation)
-- **Ktor Client**: 2.3.12 (for API calls to Keystone)
-- **Jackson**: 2.17.2 (JSON serialization with Kotlin module)
-- **IntelliJ Platform**: 2025.1.3 (with bundled Java & JavaScript plugins)
-
-## Key Considerations
+## Performance & Security
 
 ### Performance
-- Proxy starts lazily (on first script run) to avoid IDE startup overhead
-- Project detection gate prevents plugin activation in non-Keyscript projects
-- Network monitoring is opt-in (captured in Diagnostics panel, not logged by default)
+- Proxy starts **lazily** (on first script run) to avoid IDE startup overhead
+- Project detection **gate** prevents activation in non-Keyscript projects
+- Network monitoring is **opt-in** (captured, not logged by default)
 
 ### Security
-- Credentials stored via IntelliJ PasswordSafe (encrypted, OS-integrated)
-- JSESSIONID injected only into proxy-managed requests
-- No credentials logged or displayed in UI (except username on login)
+- Credentials stored via **IntelliJ PasswordSafe** (encrypted, OS-integrated)
+- `JSESSIONID` injected only into proxy-managed requests (never logged)
+- No credentials displayed in UI (only username on login)
 
 ### Compatibility
-- Plugin supports IntelliJ build versions 251–253.* (IDEA 2025.1 through 2025.3 beta)
-- Community Edition works but with reduced IDE features (no Java tooling, etc.)
-- Plugin is language-independent; works alongside Java, Python, Go, etc.
+- Plugin supports IntelliJ build versions **251–253.*** (IDEA 2025.1 through 2025.3 beta)
+- Community Edition works but with reduced features
+- Language-independent; works alongside Java, Python, Go, etc.
 
 ## Debugging & Troubleshooting
 
@@ -302,10 +338,9 @@ See @build.gradle.kts for full dependency tree:
 ```bash
 ./gradlew runIde
 ```
-This launches a test IDE instance with the plugin installed. All logs appear in the IDE's "Run" panel.
+All logs appear in the IDE's "Run" tool window. This is the primary debugging entry point.
 
 ### Enable Debug Logging
-In Settings > Keyscript IDE, enable verbose logging:
 ```kotlin
 Logger.getInstance(SessionService::class.java).setLevel(Level.DEBUG)
 ```
@@ -314,25 +349,58 @@ Logger.getInstance(SessionService::class.java).setLevel(Level.DEBUG)
 
 | Issue | Resolution |
 |-------|-----------|
-| Proxy fails to start | Check port 3000 is available; increase `proxyPort` in settings |
-| Session expires silently | SessionService auto-relogins if credentials are saved; check PasswordSafe |
-| Preview shows blank | Check Keystone server endpoint in settings; verify network connectivity |
-| Gutter icons don't appear | File must be recognized as `.js` with Keyscript markers (`// @keyscript` or `*.keyscript.js`) |
+| Proxy fails to start | Check port 3000 is available; try different `proxyPort` in settings |
+| Session expires silently | SessionService auto-relogins if credentials are saved in PasswordSafe |
+| Preview shows blank | Verify Keystone server endpoint in settings; check network connectivity |
+| Gutter icons missing | File must be recognized as `.js` with `// @keyscript` or `*.keyscript.js` |
+| Build fails with JBR error | Verify `JAVA_HOME` points to JBR 21; check IntelliJ SDK path |
+
+## Skill Usage Guide
+
+When working on tasks involving these core technologies, invoke the corresponding skill first. Each skill provides patterns, workflows, and real code examples from this codebase.
+
+### When to Load Which Skill
+
+| Skill | Load When | Key Files |
+|-------|-----------|-----------|
+| **intellij-platform** | Adding services, actions, extensions, settings | `SKILL.md` → patterns → workflows |
+| **kotlin** | Implementing services, async code, null safety | Listener pattern, EDT threading, sealed classes |
+| **ktor** | Modifying proxy routes, cookie injection, HttpClient | Server/client config, route organization |
+| **gradle** | Changing build configuration, adding dependencies | `build.gradle.kts`, dependency versions |
+| **jackson** | Parsing API responses, JSON serialization | Data class patterns, ObjectNode builder |
+| **jcef** | Modifying browser preview, JavaScript messaging | Browser lifecycle, console capture, split editor |
+
+### Example: Add a New Service
+
+1. Load `intellij-platform` skill → check patterns.md for service declaration
+2. Load `kotlin` skill → check patterns for async operations
+3. Create file: `src/main/kotlin/com/keyscript/plugin/services/MyService.kt`
+4. Follow service pattern from skill references
+5. Register in `plugin.xml`
+6. Run `./gradlew runIde` to test
+
+### Example: Modify the Proxy
+
+1. Load `ktor` skill → check workflows for adding new routes
+2. Open `src/main/kotlin/com/keyscript/plugin/proxy/`
+3. Add your route using the template from skill references
+4. Run `./gradlew runIde` and test with the sandbox IDE
+5. Check Diagnostics panel for network log
 
 ## Resources
 
-- **README.md**: User-facing feature overview and quick-start guide
-- **CHANGELOG.md**: Version history and major feature announcements
-- **plugin.xml**: Complete extension point registration and plugin metadata
-- **Ktor Documentation**: https://ktor.io (embedded server & client)
-- **IntelliJ Platform**: https://plugins.jetbrains.com/docs/intellij/
-- **Keystone Server**: Internal documentation at `keystonedev.example.com`
+- **README.md**: User-facing feature overview
+- **CHANGELOG.md**: Version history and announcements
+- **plugin.xml**: Complete extension registration
+- **IntelliJ Platform Docs**: https://plugins.jetbrains.com/docs/intellij/
+- **Ktor Documentation**: https://ktor.io
+- **Keystone Server**: Internal docs at `keystonedev.example.com`
 
-## Next Steps in Documentation
+## Next Steps
 
 After this CLAUDE.md:
-1. **Rules** (.claude/rules/*.md): Coding conventions, architecture patterns, PR checklist
-2. **Skills** (.claude/skills/*/SKILL.md): Workflow guides (debugging, adding features, testing)
+1. **Rules** (`.claude/rules/*.md`): Coding conventions, architecture patterns, PR checklist
+2. **Skills** (`.claude/skills/*/SKILL.md`): Detailed workflow guides with real code patterns
 
 
 ## Skill Usage Guide
@@ -341,24 +409,14 @@ When working on tasks involving these technologies, invoke the corresponding ski
 
 | Skill | Invoke When |
 |-------|-------------|
-| gradle | Configures build, dependencies, packaging for plugin distribution |
-| intellij-platform | Develops plugin extensions, services, and IDE integration points |
-| ktor | Builds embedded HTTP proxy server for request routing and interception |
-| jackson | Serializes and deserializes JSON for APIs and configuration |
-| kotlin | Implements plugin services, components, and UI in Kotlin |
+| gradle | Configures build system, dependency management, and plugin packaging |
+| kotlin | Implements IntelliJ plugin services, async operations, and Kotlin patterns |
+| intellij-platform | Registers extensions, services, tool windows, and IDE integrations |
 | jcef | Integrates Java Chromium Embedded Framework for browser preview |
-| scoping-feature-work | Breaks features into MVP slices and acceptance criteria |
-| typescript | Develops type definitions and bundled JavaScript assets |
-| designing-onboarding-paths | Designs onboarding paths, checklists, and first-run UI |
-| improving-activation-flow | Optimizes activation steps and time-to-value milestones |
+| ktor | Manages embedded HTTP proxy server and request routing |
+| jackson | Handles JSON serialization and API payload deserialization |
 | mapping-user-journeys | Maps in-app journeys and identifies friction points in code |
-| instrumenting-product-metrics | Defines product events, funnels, and activation metrics |
-| crafting-empty-states | Creates empty states and onboarding affordances |
+| typescript | Types CR framework definitions and JavaScript library components |
+| designing-onboarding-paths | Designs onboarding paths, checklists, and first-run UI |
 | orchestrating-feature-adoption | Plans feature discovery, nudges, and adoption flows |
-| designing-inapp-guidance | Builds tooltips, tours, and contextual guidance |
-| clarifying-market-fit | Aligns ICP, positioning, and value narrative for on-page messaging |
-| writing-release-notes | Drafts release notes tied to shipped features |
-| structuring-offer-ladders | Frames plan tiers, value ladders, and upgrade logic |
-| tuning-landing-journeys | Improves landing page flow, hierarchy, and conversion paths |
-| crafting-page-messaging | Writes conversion-focused messaging for pages and key CTAs |
-| mapping-conversion-events | Defines funnel events, tracking, and success signals |
+| instrumenting-product-metrics | Defines product events, funnels, and activation metrics |

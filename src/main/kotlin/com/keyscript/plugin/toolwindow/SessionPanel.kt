@@ -1,10 +1,12 @@
 package com.keyscript.plugin.toolwindow
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -21,7 +23,7 @@ import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
 
-class SessionPanel(private val project: Project) {
+class SessionPanel(private val project: Project) : Disposable {
     private val session = SessionService.getInstance(project)
     private val stateLabel = JBLabel()
     private val listener = { refresh() }
@@ -55,6 +57,10 @@ class SessionPanel(private val project: Project) {
         cardContainer.add(buildInfoCard(), "info")
         session.addListener(listener)
         refresh()
+    }
+
+    override fun dispose() {
+        session.removeListener(listener)
     }
 
     private fun buildEmptyCard(): JPanel {
@@ -142,7 +148,10 @@ class SessionPanel(private val project: Project) {
 
     private fun triggerLoginAction() {
         val action = ActionManager.getInstance().getAction("Keyscript.Login") ?: return
-        val event = AnActionEvent.createFromAnAction(action, null, "KeyscriptSessionPanel", DataContext.EMPTY_CONTEXT)
+        val dataContext = DataContext { dataId ->
+            if (com.intellij.openapi.actionSystem.CommonDataKeys.PROJECT.`is`(dataId)) project else null
+        }
+        val event = AnActionEvent.createFromAnAction(action, null, "KeyscriptSessionPanel", dataContext)
         action.actionPerformed(event)
     }
 

@@ -148,8 +148,7 @@ private class LoginStatusBarWidget(private val project: Project) :
                     username = creds.first,
                     password = creds.second,
                     instance = instance,
-                    deviceId = settings.deviceServiceUrl,
-                    deviceName = settings.deviceName
+                    deviceId = settings.deviceServiceUrl
                 )
             }
         }, "keyscript-switch-instance").start()

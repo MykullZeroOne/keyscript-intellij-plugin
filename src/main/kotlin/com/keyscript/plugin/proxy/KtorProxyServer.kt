@@ -1,5 +1,6 @@
 package com.keyscript.plugin.proxy
 
+import com.intellij.openapi.diagnostic.Logger
 import com.keyscript.plugin.services.NetworkMonitorService
 import com.keyscript.plugin.services.ProxyServerService
 import io.ktor.server.application.*
@@ -18,11 +19,14 @@ class KtorProxyServer(
     private val supportedInstances: List<String>,
     private val servicePort: Int,
     private val proxyService: ProxyServerService,
-    private val networkMonitor: NetworkMonitorService
+    private val networkMonitor: NetworkMonitorService,
+    private val session: com.keyscript.plugin.services.SessionService
 ) {
-    private var server: ApplicationEngine? = null
+    private val log = Logger.getInstance(KtorProxyServer::class.java)
+    private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
 
     fun start() {
+        log.info("Starting Ktor proxy on port $proxyPort, endpoint=$proxyEndpoint, instances=$supportedInstances")
         server = embeddedServer(CIO, port = proxyPort, host = "0.0.0.0") {
             install(CORS) {
                 anyHost()
@@ -36,11 +40,13 @@ class KtorProxyServer(
                 supportedInstances = supportedInstances,
                 servicePort = servicePort,
                 proxyService = proxyService,
-                networkMonitor = networkMonitor
+                networkMonitor = networkMonitor,
+                session = session
             )
             routes.configure(this)
         }
         server!!.start(wait = false)
+        log.info("Ktor proxy server started successfully on port $proxyPort")
     }
 
     fun stop() {

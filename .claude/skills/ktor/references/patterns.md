@@ -5,36 +5,46 @@
 - HttpClient configuration
 - Route organization
 - Cookie injection
+- Content-Type passthrough
 - Anti-patterns
 
 ---
 
 ## Server Configuration
 
-Always use `CIO` engine — it's pure-Kotlin with no Netty dependency, essential for keeping the plugin JAR lean. Never switch to Netty without updating `build.gradle.kts` dependencies.
+Always use `CIO` — it's pure-Kotlin with no Netty dependency, keeping the plugin JAR lean. Never switch to Netty without updating `build.gradle.kts`.
 
 ```kotlin
-// GOOD — CIO, localhost-only, non-blocking start
-server = embeddedServer(CIO, port = proxyPort, host = "localhost") {
-    install(CORS) { anyHost(); allowHeader(HttpHeaders.ContentType) }
+// KtorProxyServer.kt:26 — CIO, all interfaces, non-blocking
+server = embeddedServer(CIO, port = proxyPort, host = "0.0.0.0") {
+    install(CORS) {
+        anyHost()
+        allowHeader(HttpHeaders.ContentType)
+        allowMethod(HttpMethod.Post)
+        allowMethod(HttpMethod.Get)
+    }
     routes.configure(this)
 }
 server!!.start(wait = false)
 ```
 
-Stop with grace period: `server?.stop(1000, 2000)` — 1s graceful, 2s hard stop. This matters because the server runs inside the IDE process; abrupt stops can leak sockets.
+`host = "0.0.0.0"` is required because JCEF runs as a subprocess — binding to `localhost` only can prevent it from reaching the proxy on some OS configurations.
+
+Stop with `server?.stop(1000, 2000)` — 1s graceful, 2s hard kill. The server lives inside the IDE JVM; abrupt stops leak sockets that survive until IDE restart.
 
 ---
 
 ## HttpClient Configuration
 
-Two clients exist in this codebase: one in `ProxyRoutes` (long-lived, shared) and one in `AuthenticationService` (per-service). Both require identical TLS and `expectSuccess = false`.
+One shared `httpClient` per `ProxyRoutes` instance. Two requirements are non-negotiable:
 
-**`expectSuccess = false` is mandatory.** Without it, Ktor throws `ResponseException` on any 4xx/5xx from Keystone, which breaks the proxy's passthrough behavior — the client never sees the actual error body.
+**`expectSuccess = false`** — Without it, Ktor throws `ResponseException` on any 4xx/5xx from Keystone. The proxy must pass error responses through to the JCEF browser; throwing instead silently kills the script execution from the browser's perspective.
+
+**Trust-all TLS** — Keystone dev/test servers use self-signed certificates. Certificate pinning would break every non-production environment.
 
 ```kotlin
-// GOOD — expectSuccess=false + trust-all TLS for Keystone's self-signed cert
-val httpClient = HttpClient(CIO) {
+// ProxyRoutes.kt:44 — class-level, never recreate per request
+private val httpClient = HttpClient(CIO) {
     engine {
         https {
             trustManager = object : X509TrustManager {
@@ -48,7 +58,7 @@ val httpClient = HttpClient(CIO) {
 }
 ```
 
-`AuthenticationService` additionally sets timeouts — do the same for any new long-running client:
+For any new `HttpClient` that makes long-running requests (e.g., in `AuthenticationService`), add timeouts:
 
 ```kotlin
 install(HttpTimeout) {
@@ -62,14 +72,15 @@ install(HttpTimeout) {
 
 ## Route Organization
 
-Routes are defined as **private extension functions on `Route`** inside `ProxyRoutes`, then called from `configure()`. This keeps `configure()` readable as a table of contents without scattering route logic.
+Routes are private `Route.` extension functions called from `configure()`. This makes `configure()` a readable table of contents, not a wall of lambdas.
 
 ```kotlin
+// ProxyRoutes.kt:62 — configure() is the TOC
 fun configure(app: Application) {
     app.routing {
-        postSsoSession()      // /api/sso-session
-        postDeviceId()        // /api/device-id
-        postDirectXmlPostJson()
+        postSsoSession()         // /api/sso-session
+        postDeviceId()           // /api/device-id
+        postDirectXmlPostJson()  // /DirectXMLPostJSON
         for (inst in supportedInstances) { getRunScript(inst) }
         post("{path...}") { catchAllPost(call) }   // MUST be last
         get("{path...}") { catchAllGet(call) }      // MUST be last
@@ -78,105 +89,137 @@ fun configure(app: Application) {
 
 private fun Route.postSsoSession() {
     post("/api/sso-session") {
-        val body = call.receiveText()
-        // ...
+        val jsessionId = extractJsonField(call.receiveText(), "jsessionId")
+            ?: return@post call.respond(HttpStatusCode.BadRequest, """{"error":"Missing jsessionId"}""")
+        proxyService.setSsoSession(jsessionId)
+        call.respondText("""{"success":true}""", ContentType.Application.Json)
     }
 }
 ```
 
-**Catch-all routes must be declared last.** Ktor matches routes in declaration order — placing `{path...}` before specific routes silently swallows them.
+**Catch-all routes must be declared last.** Ktor matches in declaration order — `{path...}` before specific routes silently swallows all traffic and causes 404s that are impossible to debug.
 
 ---
 
 ## Cookie Injection
 
-`CookieInjector.injectCookie()` merges the JSESSIONID into the existing `Cookie` header from the browser. Never replace the entire header — the browser may send other cookies (e.g., CSRF tokens).
+`CookieInjector` (singleton object) handles two injection points:
+
+**Request headers** — merge JSESSIONID into the browser's existing `Cookie` header:
 
 ```kotlin
-// GOOD — merges JSESSIONID into existing cookies
+// ProxyRoutes.kt:372 — catch-all POST
 header("Cookie", CookieInjector.injectCookie(
     call.request.headers["Cookie"],
     proxyService.ssoSessionId
 ))
 
-// BAD — wipes out any other cookies the browser sent
+// NEVER do this — wipes CSRF tokens and any other cookies the browser sent
 header("Cookie", "JSESSIONID=${proxyService.ssoSessionId}")
 ```
 
-For the RunScript response, set the cookie on the response so the JCEF browser stores it for subsequent AJAX calls:
+**POST body** — some form-encoded requests embed `JSESSIONID` in the body:
 
 ```kotlin
-call.response.cookies.append("JSESSIONID", proxyService.ssoSessionId, path = "/")
+// ProxyRoutes.kt:348
+body = CookieInjector.replaceInBody(body, proxyService.ssoSessionId)
 ```
+
+**RunScript response** — set the cookie on the initial page response so the JCEF browser stores it for all subsequent AJAX calls from the script iframe:
+
+```kotlin
+// ProxyRoutes.kt:332
+if (proxyService.ssoSessionId.isNotEmpty()) {
+    call.response.cookies.append("JSESSIONID", proxyService.ssoSessionId, path = "/")
+}
+```
+
+The `injectCookie()` implementation strips any existing JSESSIONID before prepending the new one — this is why REPLACE not ADD is correct: the browser's stale session must never win over the server's current one.
 
 ---
 
 ## Content-Type Passthrough
 
-When forwarding responses, always pass through the upstream `Content-Type` — Keystone returns both JSON and XML from different endpoints.
+Keystone returns both JSON and XML from different endpoints. Always forward the upstream `Content-Type`.
 
 ```kotlin
-// GOOD
+// GOOD — ProxyRoutes.kt:411
 call.respondText(
     responseBody,
     ContentType.parse(response.headers[HttpHeaders.ContentType] ?: "application/json"),
     response.status
 )
 
-// BAD — hardcodes JSON, breaks XML endpoints like /DirectXMLPostJSON
+// BAD — hardcoding breaks /DirectXMLPostJSON and /SearchJSON which return XML
 call.respondText(responseBody, ContentType.Application.Json)
 ```
 
+For binary responses (images, JS bundles), use `respondBytes`:
+
+```kotlin
+// ProxyRoutes.kt:448
+val responseBytes = response.readBytes()
+call.respondBytes(
+    responseBytes,
+    ContentType.parse(contentType ?: "application/octet-stream"),
+    response.status
+)
+```
+
 ---
 
-## WARNING: HttpClient Instance Per Route
+## WARNING: HttpClient Instance Per Request
 
 ### The Problem
 
 ```kotlin
-// BAD — new client on every request
+// BAD — new client on every route handler invocation
 post("/DirectXMLPostJSON") {
     val client = HttpClient(CIO) { ... }
     val response = client.post(targetUrl) { ... }
-    // client never closed — connection pool leak
+    // client never closed — leaked connection pool
 }
 ```
 
 **Why This Breaks:**
-1. Each `HttpClient(CIO)` creates a new connection pool and coroutine dispatcher
-2. Connections are never reused — high Keystone load causes socket exhaustion
-3. Under IDE's JBR heap constraints, this triggers OOM under moderate usage
+1. Each `HttpClient(CIO)` creates a new coroutine dispatcher and connection pool
+2. JBR heap is constrained inside IntelliJ — socket exhaustion under moderate script usage
+3. Silent degradation: requests slow to a crawl before failing with connection errors
 
-**The Fix:**
-
-```kotlin
-// GOOD — single shared client on ProxyRoutes class
-private val httpClient = HttpClient(CIO) { ... }
-```
+**The Fix:** Single class-level `private val httpClient = HttpClient(CIO) { ... }` in `ProxyRoutes`.
 
 ---
 
-## WARNING: Blocking Call on Ktor Dispatcher
+## WARNING: runBlocking Inside Ktor Route
 
 ### The Problem
 
 ```kotlin
-// BAD — runBlocking inside a Ktor route suspending function
+// BAD — runBlocking inside a suspend function on the CIO dispatcher
 post("/api/something") {
-    val result = runBlocking { someHeavyOperation() }
+    val result = runBlocking { someOperation() }
 }
 ```
 
 **Why This Breaks:**
-1. Ktor CIO uses a coroutine dispatcher; `runBlocking` inside a coroutine deadlocks under load
-2. All proxy routes share the CIO thread pool — one blocked route stalls all others
+1. Ktor CIO routes are already coroutines on a shared dispatcher
+2. `runBlocking` inside a coroutine blocks the thread, not just the coroutine
+3. All proxy routes share the CIO thread pool — one blocked route stalls login, RunScript, and all AJAX calls simultaneously
 
 **The Fix:**
 
 ```kotlin
-// GOOD — all route handlers are already suspend; use withContext for IO
+// GOOD — route handlers are suspend; use withContext for CPU/IO-heavy ops
 post("/api/something") {
-    val result = withContext(Dispatchers.IO) { someHeavyOperation() }
+    val result = withContext(Dispatchers.IO) { someBlockingOperation() }
     call.respondText(result)
 }
 ```
+
+---
+
+## WARNING: Missing Request Timeouts
+
+The proxy makes outbound requests to Keystone. Without timeouts, a slow/unreachable Keystone server hangs the proxy indefinitely, blocking the JCEF browser and making the IDE appear frozen.
+
+Always configure `HttpTimeout` on the `HttpClient` used for outbound requests. The shared `httpClient` in `ProxyRoutes` currently has no timeouts — if adding long-running routes, configure this.

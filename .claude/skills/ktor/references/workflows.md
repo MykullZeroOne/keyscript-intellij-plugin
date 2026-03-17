@@ -13,15 +13,15 @@
 
 Copy this checklist and track progress:
 
-- [ ] 1. Define the route as a private `Route.` extension in `ProxyRoutes.kt`
-- [ ] 2. Register it in `configure()` **before** the catch-all routes
+- [ ] 1. Define route as a private `Route.` extension in `ProxyRoutes.kt`
+- [ ] 2. Register in `configure()` **before** the two catch-all routes
 - [ ] 3. Inject JSESSIONID via `CookieInjector.injectCookie()`
-- [ ] 4. Emit request/response events to `networkMonitor`
-- [ ] 5. Pass through `Content-Type` from upstream response
-- [ ] 6. Build: `./gradlew build` — fix any compile errors
-- [ ] 7. Run sandbox IDE: `./gradlew runIde` — manually verify the route
+- [ ] 4. Emit paired request/response events to `networkMonitor`
+- [ ] 5. Pass through upstream `Content-Type` in the response
+- [ ] 6. `./gradlew build` — fix compile errors
+- [ ] 7. `./gradlew runIde` — manually verify in Diagnostics > Network Monitor
 
-**Route template:**
+**Minimal route template:**
 
 ```kotlin
 private fun Route.postMyNewRoute() {
@@ -32,7 +32,7 @@ private fun Route.postMyNewRoute() {
 
         networkMonitor.addEvent(NetworkMonitorService.NetworkEvent(
             id = requestId, type = "request", method = "POST",
-            url = "/api/my-route", body = body.take(500)
+            url = targetUrl, body = body.take(500)
         ))
 
         val response = httpClient.post(targetUrl) {
@@ -62,8 +62,8 @@ Register in `configure()`:
 ```kotlin
 fun configure(app: Application) {
     app.routing {
-        // ... existing routes
-        postMyNewRoute()          // add before catch-alls
+        // ... existing specific routes
+        postMyNewRoute()                                  // before catch-alls
         post("{path...}") { catchAllPost(call) }
         get("{path...}") { catchAllGet(call) }
     }
@@ -74,112 +74,121 @@ fun configure(app: Application) {
 
 ## Debugging Proxy Startup Failures
 
-The proxy starts lazily via `ProxyServerService.ensureStarted()`. It fails silently in production — check IntelliJ's "Run" panel for log output.
-
-**Common causes:**
+The proxy starts lazily via `ProxyServerService.ensureStarted()`. Failures are logged but don't crash the IDE — check IntelliJ's "Run" panel for output.
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `Address already in use` | Port 3000 taken by another process | Change `proxyPort` in settings or kill the process |
-| Preview blank, no network events | `ensureStarted()` never called | Trigger run/login to force startup |
-| Routes return 404 | Catch-all fires before specific route | Move specific route before `{path...}` in `configure()` |
-| SSL handshake error | TrustManager not applied | Confirm `expectSuccess = false` and `trustManager` in `engine {}` block |
+| `Address already in use` | Port 3000 taken | Change `proxyPort` in Settings > Keyscript IDE or kill the process |
+| Preview blank, no network events | Proxy never started | Trigger login or Run to force `ensureStarted()` |
+| All routes return 404 | Catch-all fires before specific route | Move specific route above `{path...}` in `configure()` |
+| SSL handshake error | TrustManager not applied | Confirm `expectSuccess = false` and `trustManager` inside `engine {}` block |
+| Script runs but no JSESSIONID | `ssoSessionId` empty at request time | Verify login flow sets `proxyService.setSsoSession()` before RunScript |
 
 **Verify proxy is running:**
 
 ```kotlin
-// ProxyServerService.getProxyBaseUrl() starts the server if needed
+// getProxyBaseUrl() calls ensureStarted() internally
 val url = ProxyServerService.getInstance(project).getProxyBaseUrl()
-// Should return "http://localhost:3000" (or configured port)
+// Returns "http://localhost:3000" (or configured proxyPort)
 ```
 
 Iterate-until-pass:
 1. Change proxy code
-2. Run `./gradlew build` — verify no compile errors
-3. Launch `./gradlew runIde`
+2. `./gradlew build` — verify no compile errors
+3. `./gradlew runIde`
 4. Trigger proxy start (login or run a script)
-5. Check Run panel logs for `"Proxy server started on port ..."` — if missing, check `ProxyServerService` logs
-6. If startup fails, fix root cause and repeat from step 1
+5. Check Run panel for `"Proxy server started on port ..."` — if missing, look for exceptions before it
+6. Fix root cause and repeat from step 1
 
 ---
 
 ## Authentication Flow Walkthrough
 
-Understanding the full auth flow is required when modifying login, SSO, or session injection.
+Required reading before modifying login, SSO, or session injection.
 
 ```
 User clicks Login
-    → AuthenticationService.login()
-        → ProxyServerService.ensureStarted()          // start proxy if not running
-        → GET http://localhost:3000/{instance}         // set currentInstance on proxy
-        → POST http://localhost:3000/api/device-id     // register device ID
-        → POST http://localhost:3000/UserLogin         // proxy forwards to Keystone
-            → ProxyRoutes.catchAllPost()
-                → POST https://keystonedev.../UserLogin (with form body)
-                → Keystone returns {"JSESSIONID":"...", "success":true, ...}
-        → Parse JSESSIONID from response
-        → SessionService.setSession(jsessionId, userName)
-        → ProxyServerService.setSsoSession(jsessionId)
-        → POST http://localhost:3000/api/sso-session   // sync session to proxy state
+  → AuthenticationService.login()
+      → ProxyServerService.ensureStarted()          // proxy must be up first
+      → GET http://localhost:3000/{instance}         // sets currentInstance on ProxyRoutes
+      → POST http://localhost:3000/api/device-id     // registers device MAC
+      → POST http://localhost:3000/UserLogin         // goes through catchAllPost
+          → POST https://keystonedev.../UserLogin (form body)
+          → Keystone returns {"JSESSIONID":"xxx", "success":true, ...}
+          → catchAllPost extracts JSESSIONID, calls proxyService.setSsoSession(jsessionId)
+      → SessionService.setSession(jsessionId, userName)
+      → POST http://localhost:3000/api/sso-session   // redundant sync for SSO path
+
+JCEF browser (after RunScript page loads):
+  → AJAX calls to relative URLs (e.g., /DirectXMLPostJSON)
+  → catchAllPost fires → CookieInjector.injectCookie() adds JSESSIONID
+  → Keystone receives authenticated request
 ```
 
-When JCEF browser makes subsequent AJAX calls, `catchAllPost` injects the stored `ssoSessionId` via `CookieInjector`.
+Two places set `ssoSessionId` on `ProxyServerService`:
+1. `catchAllPost` extracts it from the `UserLogin` response body
+2. `postSsoSession` route accepts it explicitly (SSO / Kerberos path)
+
+If session injection stops working, check both paths.
 
 ---
 
 ## Modifying Network Monitoring
 
-`NetworkMonitorService` captures request/response pairs using a shared `requestId`. Events are stored in a 500-entry `CopyOnWriteArrayList` and displayed in the Diagnostics panel.
+`NetworkMonitorService` stores request/response pairs using a shared `requestId`. The Diagnostics panel pairs them by matching IDs.
 
-To add monitoring to a new route, always use the paired-ID pattern so request and response correlate in the UI:
+Always emit both request and response events — missing either produces an unmatched orphan in `getExchanges()`:
 
 ```kotlin
 val requestId = System.nanoTime().toString(36)
 
-// BEFORE forwarding
+// BEFORE forwarding to Keystone
 networkMonitor.addEvent(NetworkMonitorService.NetworkEvent(
     id = requestId,
     type = "request",
     method = "POST",
     url = targetUrl,
-    body = body.take(500)   // truncate to avoid memory bloat
+    body = body.take(500)   // truncate — full bodies bloat memory fast
 ))
 
-// AFTER forwarding
+// AFTER receiving response
 networkMonitor.addEvent(NetworkMonitorService.NetworkEvent(
-    id = requestId,         // same ID — monitor pairs them as NetworkExchange
+    id = requestId,         // same ID — monitor pairs them
     type = "response",
     status = response.status.value,
     body = responseBody.take(500)
 ))
 ```
 
-Events without a matching pair show as unmatched in `getExchanges()`. Always emit both or neither.
+The event list is capped at 500 entries (see `NetworkMonitorService`). Always truncate bodies to `take(500)` for request/response captures.
+
+For routes that should NOT appear in the monitor (e.g., internal `/api/get-project` polling), simply omit the `networkMonitor.addEvent()` calls.
 
 ---
 
 ## Build and Test Cycle
 
-No automated test suite exists yet. Manual validation steps:
+No automated tests exist. Manual validation for proxy changes:
 
 ```bash
 # 1. Compile check
 ./gradlew build
 
-# 2. Launch sandbox IDE with plugin
+# 2. Launch sandbox IDE
 ./gradlew runIde
-
-# 3. In sandbox IDE:
-#    Settings > Keyscript IDE → set keystoneServer, proxyPort
-#    Click status bar "KS: Not Logged In" → login
-#    Open a .keyscript.js file → click Run gutter icon
-#    Check Diagnostics panel → Network Monitor tab for captured events
 ```
 
-For proxy route changes specifically:
-1. `./gradlew build` — verify compilation
+In the sandbox IDE:
+1. Settings > Keyscript IDE → set `keystoneServer`, `proxyPort`
+2. Click "KS: Not Logged In" status bar widget → login
+3. Open a `.keyscript.js` file → click the Run gutter icon
+4. Open Diagnostics tool window > Network Monitor tab
+5. Confirm request + response events appear as a correlated pair
+
+For a new route specifically:
+1. `./gradlew build` — compile check
 2. `./gradlew runIde` — launch sandbox
-3. Open Diagnostics > Network Monitor
-4. Trigger the affected route (login/run/search)
-5. Confirm request+response events appear as a correlated pair
-6. If missing: add `networkMonitor.addEvent(...)` calls; if wrong content-type: fix `ContentType.parse(...)` passthrough
+3. Trigger the route from the browser/script
+4. Diagnostics > Network Monitor → verify both request and response events appear
+5. If content-type is wrong: fix `ContentType.parse(...)` passthrough
+6. If route returns 404: check declaration order in `configure()`

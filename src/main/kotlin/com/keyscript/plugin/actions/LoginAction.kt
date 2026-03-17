@@ -44,8 +44,14 @@ class LoginAction : AnAction() {
             return
         }
 
-        val dialog = LoginDialog(project, session.loadCredentials())
-        dialog.show()
+        // Load credentials off-EDT (PasswordSafe is a slow operation)
+        com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
+            val creds = session.loadCredentials()
+            javax.swing.SwingUtilities.invokeLater {
+                val dialog = LoginDialog(project, creds)
+                dialog.show()
+            }
+        }
     }
 
     override fun update(e: AnActionEvent) {
@@ -100,11 +106,6 @@ private class LoginDialog(
         toolTipText = "e.g. MAC: AA-BB-CC-DD-EE-FF"
     }
 
-    // Device Name — persisted in settings (used for API logon)
-    private val deviceNameField = JBTextField(settings.deviceName).apply {
-        toolTipText = "Keystone device name for API access (e.g. MYWORKSTATION)"
-    }
-
     // Credentials
     private val usernameField = JBTextField(savedCreds?.first ?: "").apply {
         columns = 20
@@ -140,7 +141,6 @@ private class LoginDialog(
             .addSeparator()
             .addLabeledComponent(JBLabel("Instance:"), instanceCombo, 1, false)
             .addLabeledComponent(JBLabel("Device ID:"), deviceIdField, 1, false)
-            .addLabeledComponent(JBLabel("Device Name:"), deviceNameField, 1, false)
             .addSeparator()
             .addLabeledComponent(JBLabel("Username:"), usernameField, 1, false)
             .addLabeledComponent(JBLabel("Password:"), passwordField, 1, false)
@@ -175,13 +175,11 @@ private class LoginDialog(
         val password = String(passwordField.password)
         val instance = instanceCombo.selectedItem?.toString() ?: settings.getDefaultInstance()
         val deviceId = deviceIdField.text.trim()
-        val deviceName = deviceNameField.text.trim()
 
-        // Save device ID and device name for next time
+        // Save device ID for next time
         if (deviceId.isNotBlank()) {
             settings.deviceServiceUrl = deviceId
         }
-        settings.deviceName = deviceName
 
         // Show loading state
         errorLabel.isVisible = false
@@ -193,7 +191,7 @@ private class LoginDialog(
         SwingWorker.execute {
             val result = try {
                 runBlocking {
-                    AuthenticationService.getInstance(project).login(username, password, instance, deviceId, deviceName)
+                    AuthenticationService.getInstance(project).login(username, password, instance, deviceId)
                 }
             } catch (e: Exception) {
                 AuthenticationService.LoginResult(false, error = "Login failed: ${e.message}")

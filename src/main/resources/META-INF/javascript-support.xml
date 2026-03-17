@@ -1,4 +1,9 @@
 <idea-plugin>
-    <!-- Optional JavaScript plugin support - only loaded when JavaScript plugin is available -->
-    <!-- TODO: Register CR framework .d.ts as a JavaScript library when CRLibraryProvider is implemented -->
+    <extensions defaultExtensionNs="com.intellij">
+        <runLineMarkerContributor language="JavaScript"
+                                   implementationClass="com.keyscript.plugin.runconfig.KeyscriptRunLineMarkerContributor"/>
+
+        <completion.contributor language="JavaScript"
+                                implementationClass="com.keyscript.plugin.completion.CRCompletionContributor"/>
+    </extensions>
 </idea-plugin>

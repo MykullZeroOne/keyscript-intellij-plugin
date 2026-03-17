@@ -4,6 +4,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import kotlinx.coroutines.*
 import java.io.File
 
 /**
@@ -12,7 +13,7 @@ import java.io.File
  * keeps running to rebuild on file changes, and stops on project close.
  */
 @Service(Service.Level.PROJECT)
-class BundleWatchService(private val project: Project) : Disposable {
+class BundleWatchService(private val project: Project, private val serviceScope: CoroutineScope) : Disposable {
     private val log = Logger.getInstance(BundleWatchService::class.java)
     private val watchProcesses = mutableMapOf<String, Process>()
     private val lock = Any()
@@ -64,23 +65,21 @@ class BundleWatchService(private val project: Project) : Disposable {
                     .redirectErrorStream(true)
                     .start()
 
-                // Read output in background thread to prevent buffer blocking
-                Thread({
+                // Read output in background coroutine to prevent buffer blocking
+                serviceScope.launch(Dispatchers.IO) {
                     try {
                         process.inputStream.bufferedReader().forEachLine { line ->
                             log.info("[esbuild watch] $line")
                         }
                     } catch (_: Exception) {}
-                }, "esbuild-watch-${bundleRoot.name}").apply {
-                    isDaemon = true
-                    start()
                 }
 
                 watchProcesses[key] = process
                 log.info("esbuild watch started for $key (pid=${process.pid()})")
 
-                // Give esbuild a moment to do the initial build
-                Thread.sleep(500)
+                // Give esbuild a moment to do the initial build (using runBlocking for synchronous return as requested by current signature)
+                // Note: Better would be making ensureWatching suspend, but we mimic existing behavior safely
+                runBlocking { delay(500) }
                 true
             } catch (e: Exception) {
                 log.warn("Failed to start esbuild watch for $key", e)

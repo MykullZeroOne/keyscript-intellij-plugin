@@ -7,6 +7,9 @@ import com.intellij.ui.content.ContentFactory
 import com.keyscript.plugin.onboarding.GettingStartedPanel
 import com.keyscript.plugin.onboarding.OnboardingStateService
 import com.keyscript.plugin.services.KeyscriptProjectDetector
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 class KeyscriptWorkspaceToolWindowFactory : ToolWindowFactory {
     @Suppress("DEPRECATION")
@@ -22,27 +25,33 @@ class KeyscriptWorkspaceToolWindowFactory : ToolWindowFactory {
         // Show Getting Started tab if onboarding is not complete
         val onboarding = OnboardingStateService.getInstance(project)
         if (!onboarding.isComplete || !onboarding.dismissed) {
+            val panel = GettingStartedPanel(project)
             val gettingStarted = factory.createContent(
-                GettingStartedPanel(project).component,
+                panel.component,
                 "Getting Started",
                 false
             )
             gettingStarted.isCloseable = true
+            gettingStarted.setDisposer(panel)
             contentManager.addContent(gettingStarted)
         }
 
+        val optionsPanel = ScriptOptionsPanel(project, CoroutineScope(SupervisorJob() + Dispatchers.Main))
         val runOptions = factory.createContent(
-            ScriptOptionsPanel(project).component,
+            optionsPanel.component,
             WorkspaceTab.RUN_OPTIONS.title,
             false
         )
+        runOptions.setDisposer(optionsPanel)
         contentManager.addContent(runOptions)
 
+        val sessionPanel = SessionPanel(project)
         val session = factory.createContent(
-            SessionPanel(project).component,
+            sessionPanel.component,
             WorkspaceTab.SESSION.title,
             false
         )
+        session.setDisposer(sessionPanel)
         contentManager.addContent(session)
     }
 }

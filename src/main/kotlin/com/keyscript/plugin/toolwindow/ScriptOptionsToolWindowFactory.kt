@@ -1,7 +1,9 @@
 package com.keyscript.plugin.toolwindow
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.TitledSeparator
@@ -18,7 +20,7 @@ import com.keyscript.plugin.services.ProxyServerService
 import com.keyscript.plugin.services.ScriptParameterService
 import com.keyscript.plugin.services.SessionService
 import com.keyscript.plugin.settings.KeyscriptSettings
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.GridBagConstraints
@@ -36,16 +38,22 @@ import javax.swing.event.DocumentListener
  */
 class ScriptOptionsToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val panel = ScriptOptionsPanel(project)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        val panel = ScriptOptionsPanel(project, scope)
         val content = ContentFactory.getInstance().createContent(panel.component, "", false)
+        content.setDisposer(panel)
         toolWindow.contentManager.addContent(content)
     }
 }
 
-class ScriptOptionsPanel(private val project: Project) {
+class ScriptOptionsPanel(private val project: Project, private val scope: CoroutineScope) : Disposable {
     private val log = Logger.getInstance(ScriptOptionsPanel::class.java)
     private val service = ScriptParameterService.getInstance(project)
     private val settings = KeyscriptSettings.getInstance()
+
+    override fun dispose() {
+        scope.cancel()
+    }
 
     // Person search filters
     private val personFilters = linkedMapOf(
@@ -295,21 +303,18 @@ class ScriptOptionsPanel(private val project: Project) {
         val session = SessionService.getInstance(project)
         val creds = session.loadCredentials() ?: return
         log.info("Switching instance to $instance — auto-re-login")
-        Thread({
+        scope.launch(Dispatchers.IO) {
             try {
-                runBlocking {
-                    AuthenticationService.getInstance(project).login(
-                        username = creds.first,
-                        password = creds.second,
-                        instance = instance,
-                        deviceId = settings.deviceServiceUrl,
-                        deviceName = settings.deviceName
-                    )
-                }
+                AuthenticationService.getInstance(project).login(
+                    username = creds.first,
+                    password = creds.second,
+                    instance = instance,
+                    deviceId = settings.deviceServiceUrl
+                )
             } catch (e: Exception) {
                 log.warn("Instance switch login failed", e)
             }
-        }, "keyscript-switch-instance").start()
+        }
     }
 
     // ─── Search Logic ────────────────────────────
@@ -363,14 +368,14 @@ class ScriptOptionsPanel(private val project: Project) {
         accountSearchButton.isEnabled = false
         resultModel.clear()
 
-        Thread({
+        scope.launch(Dispatchers.IO) {
             try {
                 val xml = buildSearchXml(tableName, filterName, query)
                 val proxyBase = ProxyServerService.getInstance(project).getProxyBaseUrl()
                 val response = postXml("$proxyBase/SearchJSON", xml)
                 val results = parseSearchResults(response)
 
-                SwingUtilities.invokeLater {
+                withContext(Dispatchers.Main) {
                     personSearchButton.isEnabled = true
                     accountSearchButton.isEnabled = true
                     resultModel.clear()
@@ -397,13 +402,13 @@ class ScriptOptionsPanel(private val project: Project) {
                 }
             } catch (e: Exception) {
                 log.warn("Search failed", e)
-                SwingUtilities.invokeLater {
+                withContext(Dispatchers.Main) {
                     personSearchButton.isEnabled = true
                     accountSearchButton.isEnabled = true
                     statusLabel.text = "Search error: ${e.message}"
                 }
             }
-        }, "keyscript-search").start()
+        }
     }
 
     // ─── XML / HTTP helpers ──────────────────────

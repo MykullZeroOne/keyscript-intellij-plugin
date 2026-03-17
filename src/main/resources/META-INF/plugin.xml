@@ -13,7 +13,6 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <!-- Settings -->
-        <applicationService serviceImplementation="com.keyscript.plugin.settings.KeyscriptSettings"/>
         <applicationConfigurable instance="com.keyscript.plugin.settings.KeyscriptSettingsConfigurable"
                                  id="com.keyscript.plugin.settings"
                                  displayName="Keyscript IDE"/>
@@ -21,24 +20,6 @@
                              id="com.keyscript.plugin.settings.project"
                              displayName="Keyscript IDE"
                              parentId="language"/>
-
-        <!-- Project Services -->
-        <projectService serviceImplementation="com.keyscript.plugin.services.KeyscriptProjectService"/>
-        <projectService serviceImplementation="com.keyscript.plugin.services.ProxyServerService"/>
-        <projectService serviceImplementation="com.keyscript.plugin.services.AuthenticationService"/>
-        <projectService serviceImplementation="com.keyscript.plugin.services.SessionService"/>
-        <projectService serviceImplementation="com.keyscript.plugin.services.ScriptParameterService"/>
-        <projectService serviceImplementation="com.keyscript.plugin.services.NetworkMonitorService"/>
-        <projectService serviceImplementation="com.keyscript.plugin.services.RunKeyscriptService"/>
-        <projectService serviceImplementation="com.keyscript.plugin.services.PreviewContentService"/>
-        <projectService serviceImplementation="com.keyscript.plugin.services.WorkspaceUiService"/>
-        <projectService serviceImplementation="com.keyscript.plugin.services.KeyscriptProjectDetector"/>
-        <projectService serviceImplementation="com.keyscript.plugin.services.DeploymentService"/>
-        <projectService serviceImplementation="com.keyscript.plugin.services.BundleService"/>
-        <projectService serviceImplementation="com.keyscript.plugin.services.KeystoneApiClient"/>
-        <projectService serviceImplementation="com.keyscript.plugin.services.InstalledScriptsService"/>
-        <projectService serviceImplementation="com.keyscript.plugin.services.BundleWatchService"/>
-        <projectService serviceImplementation="com.keyscript.plugin.onboarding.OnboardingStateService"/>
 
         <!-- Startup -->
         <postStartupActivity implementation="com.keyscript.plugin.services.KeyscriptProjectService$StartupActivity"/>
@@ -58,12 +39,8 @@
         <configurationType implementation="com.keyscript.plugin.runconfig.KeyscriptRunConfigurationType"/>
         <runConfigurationProducer implementation="com.keyscript.plugin.runconfig.KeyscriptRunConfigurationProducer"/>
         <programRunner implementation="com.keyscript.plugin.runconfig.KeyscriptProgramRunner"/>
-        <runLineMarkerContributor language="JavaScript"
-                                   implementationClass="com.keyscript.plugin.runconfig.KeyscriptRunLineMarkerContributor"/>
 
         <!-- Completions -->
-        <completion.contributor language="JavaScript"
-                                implementationClass="com.keyscript.plugin.completion.CRCompletionContributor"/>
         <fileEditorProvider id="keyscript-split-preview"
                             implementation="com.keyscript.plugin.preview.KeyscriptSplitEditorProvider"/>
 

@@ -54,10 +54,9 @@ class WelcomeDialog(private val project: Project) : DialogWrapper(project, true)
             <p style='margin-top:10px;'><b>Open:</b> Settings &gt; Keyscript IDE</p>
             <p style='margin-top:10px;'>Fill in these fields:</p>
             <table style='margin-top:6px;'>
-              <tr><td style='color:#888; padding-right:12px;'>Proxy Endpoint</td><td><code>keystonedev.revfcu.com:8443</code></td></tr>
-              <tr><td style='color:#888; padding-right:12px;'>API URL</td><td><code>http://keystonedev.revfcu.com:52310</code></td></tr>
+              <tr><td style='color:#888; padding-right:12px;'>Server Endpoint</td><td><code>keystonedev.revfcu.com:8443</code></td></tr>
               <tr><td style='color:#888; padding-right:12px;'>Instances</td><td><code>Development, Test</code></td></tr>
-              <tr><td style='color:#888; padding-right:12px;'>Device Name</td><td>Your Keystone device name</td></tr>
+              <tr><td style='color:#888; padding-right:12px;'>Device Identifier</td><td>Your Keystone device ID</td></tr>
             </table>
             <p style='color:#4EC9B0; margin-top:14px;'>&#10004; When done, you'll see the values in the settings panel.</p>
             </body></html>
@@ -235,7 +234,7 @@ class WelcomeDialog(private val project: Project) : DialogWrapper(project, true)
 
         // Check if server is already configured
         val settings = KeyscriptSettings.getInstance()
-        if (settings.proxyEndpoint.isNotBlank() && settings.keystoneApiUrl.isNotBlank()) {
+        if (settings.proxyEndpoint.isNotBlank()) {
             onboarding.configuredServer = true
         }
         if (SessionService.getInstance(project).isLoggedIn) {

@@ -28,13 +28,12 @@ class ProxyRoutes(
     private val supportedInstances: List<String>,
     private val servicePort: Int,
     private val proxyService: ProxyServerService,
-    private val networkMonitor: NetworkMonitorService
+    private val networkMonitor: NetworkMonitorService,
+    private val session: com.keyscript.plugin.services.SessionService
 ) {
     private val log = Logger.getInstance(ProxyRoutes::class.java)
     private val ideParamsData = ConcurrentHashMap<String, String>()
     private val ideParamsSeq = AtomicInteger(0)
-    private var currentInstance = supportedInstances.firstOrNull() ?: "Test"
-    private var deviceIdentifier = ""
 
     private val useHttps = proxyEndpoint.startsWith("https") ||
             proxyEndpoint.endsWith(":8443") || proxyEndpoint.endsWith(":443")
@@ -42,16 +41,16 @@ class ProxyRoutes(
         "https://$proxyEndpoint" else proxyEndpoint
 
     private val httpClient = HttpClient(CIO) {
+        expectSuccess = false
         engine {
             https {
                 trustManager = object : X509TrustManager {
-                    override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
-                    override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
-                    override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+                    override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
+                    override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
+                    override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
                 }
             }
         }
-        expectSuccess = false
     }
 
     private val keybridgeEndpoints = setOf(
@@ -72,6 +71,7 @@ class ProxyRoutes(
             // ─── Dedicated POST handlers ───────────
             postDirectXmlPostJson()
             postSearchJson()
+            postJsonQuery()
 
             // ─── GET UserLogin (SSO / Kerberos) ────
             getUserLogin()
@@ -84,8 +84,8 @@ class ProxyRoutes(
             // ─── Instance routes ───────────────────
             for (inst in supportedInstances) {
                 get("/$inst") {
-                    currentInstance = inst
-                    call.respondText("""{"instance":"$currentInstance"}""", ContentType.Application.Json)
+                    session.instance = inst
+                    call.respondText("""{"instance":"$inst"}""", ContentType.Application.Json)
                 }
             }
 
@@ -119,7 +119,7 @@ class ProxyRoutes(
             val body = call.receiveText()
             val id = extractJsonField(body, "deviceId")
             if (id != null) {
-                deviceIdentifier = id
+                session.deviceId = id
                 call.respondText("""{"success":true}""", ContentType.Application.Json)
             } else {
                 call.respond(HttpStatusCode.BadRequest, """{"error":"Missing deviceId"}""")
@@ -150,8 +150,8 @@ class ProxyRoutes(
 
     private fun Route.getProjectScripts() {
         get("/project-scripts/{path...}") {
-            val path = proxyService.activeProjectPath
-            if (path.isEmpty()) {
+            val projectPath = proxyService.activeProjectPath
+            if (projectPath.isEmpty()) {
                 log.warn("project-scripts: No project loaded (activeProjectPath is empty)")
                 call.respond(HttpStatusCode.NotFound, "No project loaded")
                 return@get
@@ -163,13 +163,19 @@ class ProxyRoutes(
                 call.respondText(overrideContent, ContentType.Application.JavaScript)
                 return@get
             }
-            val file = java.io.File(path, relative)
-            if (file.exists()) {
+            val file = java.io.File(projectPath, relative).canonicalFile
+            if (!file.absolutePath.startsWith(java.io.File(projectPath).canonicalPath)) {
+                log.warn("project-scripts: Potential path traversal attempt: $relative (projectPath=$projectPath)")
+                call.respond(HttpStatusCode.Forbidden, "Access denied")
+                return@get
+            }
+
+            if (file.exists() && file.isFile) {
                 log.info("project-scripts: Serving file ${file.absolutePath} (${file.length()} bytes)")
                 call.respondFile(file)
             } else {
-                log.warn("project-scripts: File not found: ${file.absolutePath} (projectPath=$path, relative=$relative)")
-                call.respond(HttpStatusCode.NotFound, "Script not found: ${file.absolutePath}")
+                log.warn("project-scripts: File not found: ${file.absolutePath} (projectPath=$projectPath, relative=$relative)")
+                call.respond(HttpStatusCode.NotFound, "Script not found")
             }
         }
     }
@@ -200,7 +206,8 @@ class ProxyRoutes(
     private fun Route.postDirectXmlPostJson() {
         post("/DirectXMLPostJSON") {
             val xmlBody = extractXmlBody(call.receiveText())
-            val targetUrl = "$proxyUrl/$currentInstance/DirectXMLPostJSON"
+            val inst = session.instance.ifEmpty { supportedInstances.firstOrNull() ?: "Test" }
+            val targetUrl = "$proxyUrl/$inst/DirectXMLPostJSON"
 
             val response = httpClient.post(targetUrl) {
                 contentType(ContentType.Text.Xml)
@@ -232,7 +239,8 @@ class ProxyRoutes(
     private fun Route.postSearchJson() {
         post("/SearchJSON") {
             val xmlBody = extractXmlBody(call.receiveText())
-            val targetUrl = "$proxyUrl/$currentInstance/SearchJSON"
+            val inst = session.instance.ifEmpty { supportedInstances.firstOrNull() ?: "Test" }
+            val targetUrl = "$proxyUrl/$inst/SearchJSON"
 
             val response = httpClient.post(targetUrl) {
                 contentType(ContentType.Text.Xml)
@@ -259,11 +267,50 @@ class ProxyRoutes(
         }
     }
 
+    // ─── /api/json — JSON API proxy ────────────────
+    // Forwards JSON queries to Keystone with JSESSIONID cookie injection.
+    // Used by InstalledScriptsService for SCRIPT table operations.
+
+    private fun Route.postJsonQuery() {
+        post("/api/json") {
+            val jsonBody = call.receiveText()
+            val inst = session.instance.ifEmpty { supportedInstances.firstOrNull() ?: "Test" }
+            val targetUrl = "$proxyUrl/$inst"
+
+            log.info("JSON API proxy: POST $targetUrl, body size=${jsonBody.length}")
+
+            val requestId = System.nanoTime().toString(36)
+            networkMonitor.addEvent(NetworkMonitorService.NetworkEvent(
+                id = requestId, type = "request", method = "POST", url = "/api/json", body = jsonBody.take(500)
+            ))
+
+            val response = httpClient.post(targetUrl) {
+                contentType(ContentType.Application.Json)
+                if (proxyService.ssoSessionId.isNotEmpty()) {
+                    header("Cookie", "JSESSIONID=${proxyService.ssoSessionId}")
+                }
+                setBody(jsonBody)
+            }
+
+            val responseBody = response.bodyAsText()
+            networkMonitor.addEvent(NetworkMonitorService.NetworkEvent(
+                id = requestId, type = "response", status = response.status.value, body = responseBody.take(500)
+            ))
+
+            call.respondText(
+                responseBody,
+                ContentType.Application.Json,
+                response.status
+            )
+        }
+    }
+
     // ─── GET /UserLogin ────────────────────────────
 
     private fun Route.getUserLogin() {
         get("/UserLogin") {
-            val targetUrl = "$proxyUrl/$currentInstance/UserLogin"
+            val inst = session.instance.ifEmpty { supportedInstances.firstOrNull() ?: "Test" }
+            val targetUrl = "$proxyUrl/$inst/UserLogin"
             val response = httpClient.get(targetUrl)
             call.respondText(response.bodyAsText(), ContentType.Application.Json, response.status)
         }
@@ -372,8 +419,8 @@ class ProxyRoutes(
             header("Cookie", CookieInjector.injectCookie(
                 call.request.headers["Cookie"], proxyService.ssoSessionId
             ))
-            if (deviceIdentifier.isNotEmpty()) {
-                header("X-Device-Identifier", deviceIdentifier)
+            if (session.deviceId.isNotEmpty()) {
+                header("X-Device-Identifier", session.deviceId)
             }
             setBody(body)
         }
@@ -396,20 +443,43 @@ class ProxyRoutes(
             } catch (_: Exception) {}
         }
 
-        // UserLogin response: capture JSESSIONID
+        // UserLogin response: capture JSESSIONID from body or Set-Cookie header
+        var finalResponseBody = responseBody
         if (path.endsWith("/UserLogin")) {
-            val jsessionId = extractJsonField(responseBody, "JSESSIONID")
+            var jsessionId = extractJsonField(responseBody, "JSESSIONID")
+
+            // Keystone typically returns JSESSIONID in Set-Cookie header, not body
+            if (jsessionId == null) {
+                jsessionId = response.headers.getAll("Set-Cookie")
+                    ?.firstNotNullOfOrNull { cookie ->
+                        Regex("""JSESSIONID=([^;]+)""").find(cookie)?.groupValues?.get(1)
+                    }
+                log.info("UserLogin: extracted JSESSIONID from Set-Cookie: ${jsessionId?.take(8)}...")
+            }
+
             if (jsessionId != null) {
                 proxyService.setSsoSession(jsessionId)
+
+                // Inject JSESSIONID into the JSON response so AuthenticationService can read it
+                if (extractJsonField(responseBody, "JSESSIONID") == null) {
+                    finalResponseBody = if (responseBody.trimStart().startsWith("{")) {
+                        // Insert JSESSIONID into existing JSON object
+                        "{\"JSESSIONID\":\"$jsessionId\"," + responseBody.trimStart().removePrefix("{")
+                    } else {
+                        // Wrap in JSON object
+                        """{"JSESSIONID":"$jsessionId","success":true}"""
+                    }
+                    log.info("UserLogin: injected JSESSIONID into response body")
+                }
             }
         }
 
         networkMonitor.addEvent(NetworkMonitorService.NetworkEvent(
-            id = requestId, type = "response", status = response.status.value, body = responseBody.take(500)
+            id = requestId, type = "response", status = response.status.value, body = finalResponseBody.take(500)
         ))
 
         call.respondText(
-            responseBody,
+            finalResponseBody,
             ContentType.parse(response.headers[HttpHeaders.ContentType] ?: "application/json"),
             response.status
         )
@@ -442,7 +512,7 @@ class ProxyRoutes(
             log.warn("GET proxy ${response.status.value}: $rawPath -> $targetUrl")
         }
 
-        val responseBytes = response.readBytes()
+        val responseBytes = response.readRawBytes()
         val contentType = response.headers[HttpHeaders.ContentType]
 
         call.respondBytes(
@@ -455,6 +525,7 @@ class ProxyRoutes(
     // ─── Helpers ───────────────────────────────────
 
     private fun resolvePostPath(path: String): String {
+        val currentInstance = session.instance
         // Strip /Keyscript_IDE/ from anywhere in the path (browser resolves relative URLs
         // against the RunScript page URL, producing paths like /Development/Keyscript_IDE/DirectXMLPostJSON)
         var resolved = if (path.contains("/Keyscript_IDE/")) {
@@ -468,7 +539,7 @@ class ProxyRoutes(
             return "/$currentInstance$resolved"
         }
         // Prepend instance if not already present
-        if (!resolved.startsWith("/$currentInstance")) {
+        if (currentInstance.isNotEmpty() && !resolved.startsWith("/$currentInstance")) {
             return "/$currentInstance$resolved"
         }
         return resolved

@@ -5,13 +5,15 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.keyscript.plugin.settings.KeyscriptSettings
 import java.net.HttpURLConnection
 import java.net.URI
 
 /**
  * Provides CRUD operations on the Keystone SCRIPT table for browsing
  * and managing server-side installed scripts.
+ *
+ * All calls go through the local proxy for consistent session management
+ * and cookie injection.
  */
 @Service(Service.Level.PROJECT)
 class InstalledScriptsService(private val project: Project) {
@@ -54,7 +56,7 @@ class InstalledScriptsService(private val project: Project) {
         }
 
         val body = buildSearchJson(session.apiSessionId, searchTerm, returnLimit)
-        val (responseBody, error) = postToKeystone(body)
+        val (responseBody, error) = postThroughProxy(body)
         if (error != null) {
             return ServiceResult(success = false, error = error, sessionExpired = error == "Session expired")
         }
@@ -62,23 +64,9 @@ class InstalledScriptsService(private val project: Project) {
         return try {
             log.info("InstalledScripts search raw response (2000 chars): ${responseBody?.take(2000)}")
             val json = mapper.readTree(responseBody)
-            // Log the deep structure to find resultRow/resultRows
             val searchNode = findDeep(json, "search")
             if (searchNode != null) {
                 log.info("InstalledScripts 'search' node keys: ${searchNode.fieldNames().asSequence().toList()}")
-                val resultRow = searchNode.get("resultRow")
-                if (resultRow != null) {
-                    log.info("InstalledScripts resultRow type=${if (resultRow.isArray) "array[${resultRow.size()}]" else "object"}")
-                    if (resultRow.isArray && resultRow.size() > 0) {
-                        log.info("InstalledScripts first resultRow: ${resultRow[0].toString().take(500)}")
-                    } else if (!resultRow.isArray) {
-                        log.info("InstalledScripts resultRow (single): ${resultRow.toString().take(500)}")
-                    }
-                } else {
-                    log.info("InstalledScripts: no 'resultRow' in search node")
-                }
-            } else {
-                log.info("InstalledScripts: no 'search' node found in response")
             }
             val results = extractSearchResults(json)
             log.info("Parsed ${results.size} results, first: ${results.firstOrNull()}")
@@ -99,7 +87,7 @@ class InstalledScriptsService(private val project: Project) {
         }
 
         val body = buildViewJson(session.apiSessionId, serial)
-        val (responseBody, error) = postToKeystone(body)
+        val (responseBody, error) = postThroughProxy(body)
         if (error != null) {
             return ServiceResult(success = false, error = error, sessionExpired = error == "Session expired")
         }
@@ -109,7 +97,7 @@ class InstalledScriptsService(private val project: Project) {
             val json = mapper.readTree(responseBody)
             val detail = extractScriptDetail(json, serial)
             if (detail != null) {
-                log.info("Parsed script detail: desc=${detail.description}, sourceLen=${detail.sourceCode.length}, fields=${detail.fields.keys}")
+                log.info("Parsed script detail: desc=${detail.description}, sourceLen=${detail.sourceCode.length}")
                 ServiceResult(success = true, data = detail)
             } else {
                 log.warn("extractScriptDetail returned null for serial=$serial")
@@ -131,7 +119,7 @@ class InstalledScriptsService(private val project: Project) {
         }
 
         val body = buildDeleteJson(session.apiSessionId, serial)
-        val (responseBody, error) = postToKeystone(body)
+        val (responseBody, error) = postThroughProxy(body)
         if (error != null) {
             return ServiceResult(success = false, error = error, sessionExpired = error == "Session expired")
         }
@@ -227,27 +215,21 @@ class InstalledScriptsService(private val project: Project) {
         return mapper.writeValueAsString(mapOf("query" to query))
     }
 
-    // ─── HTTP ───────────────────────────────────────
+    // ─── HTTP (through proxy) ───────────────────────
 
-    private fun getKeystoneUrl(): String {
-        val settings = KeyscriptSettings.getInstance()
-        val instance = ScriptParameterService.getInstance(project).instance.ifEmpty {
-            settings.getDefaultInstance()
-        }
-        val baseUrl = settings.getKeystoneApiBaseUrl()
-        return "$baseUrl/$instance"
-    }
-
-    private fun postToKeystone(jsonBody: String): Pair<String?, String?> {
-        val url = getKeystoneUrl()
-        log.info("InstalledScriptsService POST to $url, body size=${jsonBody.length}")
+    /**
+     * POST JSON through the local proxy's /api/json endpoint.
+     * The proxy injects the JSESSIONID cookie and forwards to Keystone.
+     */
+    private fun postThroughProxy(jsonBody: String): Pair<String?, String?> {
+        val proxyBase = ProxyServerService.getInstance(project).getProxyBaseUrl()
+        val url = "$proxyBase/api/json"
+        log.info("InstalledScriptsService POST to proxy $url, body size=${jsonBody.length}")
 
         return try {
             val conn = URI(url).toURL().openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json")
-            val session = SessionService.getInstance(project)
-            conn.setRequestProperty("Cookie", "JSESSIONID=${session.apiSessionId}")
             conn.connectTimeout = 15_000
             conn.readTimeout = 30_000
             conn.doOutput = true
@@ -260,7 +242,7 @@ class InstalledScriptsService(private val project: Project) {
                 conn.errorStream?.bufferedReader()?.readText() ?: ""
             }
 
-            log.info("Keystone response: status=$status, body=${responseBody.take(300)}")
+            log.info("Proxy response: status=$status, body=${responseBody.take(300)}")
 
             if (isSessionExpired(status, responseBody)) {
                 SessionService.getInstance(project).handleSessionExpired()
@@ -289,7 +271,6 @@ class InstalledScriptsService(private val project: Project) {
         val rowList = if (rows.isArray) rows.toList() else listOf(rows)
 
         for (row in rowList) {
-            // Serial may be at row.serial or row.$attr.serial
             var serial = row.path("serial").asText("")
             if (serial.isEmpty()) {
                 val attr = row.get("\$attr")
@@ -297,14 +278,9 @@ class InstalledScriptsService(private val project: Project) {
             }
             if (serial.isEmpty()) continue
 
-            // Description from rowDescription or ROW_DESCRIPTION
             var desc = row.path("rowDescription").asText("")
             if (desc.isEmpty()) desc = row.path("ROW_DESCRIPTION").asText("")
 
-            // Extract additional columns from selectColumn array.
-            // Result-row selectColumns are POSITIONAL — they don't carry columnName.
-            // Map them using the search-level selectColumn definitions, or fall back
-            // to treating the first one as description if no columnName is present.
             var language = ""
             var category = ""
             var workArea = ""
@@ -313,7 +289,6 @@ class InstalledScriptsService(private val project: Project) {
             if (selectColumns != null) {
                 val colList = if (selectColumns.isArray) selectColumns.toList() else listOf(selectColumns)
 
-                // Build column-name list from the search-level selectColumn definitions
                 val searchSelectCols = search.get("selectColumn")
                 val colNames = mutableListOf<String>()
                 if (searchSelectCols != null) {
@@ -322,9 +297,7 @@ class InstalledScriptsService(private val project: Project) {
                 }
 
                 for ((idx, col) in colList.withIndex()) {
-                    // Try columnName on the result-row entry first (may not exist)
                     var colName = col.path("columnName").asText("")
-                    // Fall back to positional mapping from search-level definitions
                     if (colName.isEmpty() && idx < colNames.size) {
                         colName = colNames[idx]
                     }
@@ -335,7 +308,6 @@ class InstalledScriptsService(private val project: Project) {
                         "CLIENT_TRAN_WORK_AREA_OPTION" -> workArea = contents
                         "DESCRIPTION", "ROW_DESCRIPTION" -> if (desc.isEmpty()) desc = contents
                     }
-                    // If still no mapping and this is the first column, use as description
                     if (colName.isEmpty() && idx == 0 && desc.isEmpty()) {
                         desc = contents
                     }
@@ -356,11 +328,9 @@ class InstalledScriptsService(private val project: Project) {
     private fun extractScriptDetail(json: JsonNode, serial: String): ScriptDetail? {
         val record = findDeep(json, "record")
         if (record == null) {
-            log.warn("extractScriptDetail: no 'record' node found. Full response: ${json.toString().take(1000)}")
+            log.warn("extractScriptDetail: no 'record' node found")
             return null
         }
-        log.info("extractScriptDetail: record node keys = ${record.fieldNames().asSequence().toList()}")
-        log.info("extractScriptDetail: record = ${record.toString().take(1500)}")
 
         val fields = mutableMapOf<String, String>()
 
@@ -368,7 +338,6 @@ class InstalledScriptsService(private val project: Project) {
         val fieldNode = record.get("field")
         if (fieldNode != null) {
             val fieldList = if (fieldNode.isArray) fieldNode.toList() else listOf(fieldNode)
-            log.info("extractScriptDetail: found ${fieldList.size} field entries")
             for (f in fieldList) {
                 val colName = f.path("columnName").asText("")
                 val contents = f.path("contents").asText("")
@@ -379,9 +348,8 @@ class InstalledScriptsService(private val project: Project) {
             }
         }
 
-        // Format 2: direct child nodes on record (e.g., record.DESCRIPTION = {contents: "..."})
+        // Format 2: direct child nodes on record
         if (fields.isEmpty()) {
-            log.info("extractScriptDetail: no 'field' array found, trying direct children")
             val skip = setOf("\$attr", "operation", "tableName", "targetSerial",
                 "includeAllColumns", "includeRowDescriptions", "includeTableMetadata",
                 "includeColumnMetadata", "serial", "rowDescription")
@@ -398,14 +366,6 @@ class InstalledScriptsService(private val project: Project) {
             }
         }
 
-        log.info("extractScriptDetail: parsed ${fields.size} fields. Keys: ${fields.keys}")
-        if (fields.containsKey("SOURCE_CODE")) {
-            log.info("extractScriptDetail: SOURCE_CODE length = ${fields["SOURCE_CODE"]?.length}")
-        } else {
-            log.warn("extractScriptDetail: SOURCE_CODE not found in fields!")
-        }
-
-        // Also try to get serial from record or $attr
         var recordSerial = record.path("serial").asText("")
         if (recordSerial.isEmpty()) {
             val attr = record.get("\$attr")

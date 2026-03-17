@@ -8,7 +8,10 @@ import com.intellij.openapi.wm.WindowManager
 import com.keyscript.plugin.onboarding.OnboardingStateService
 import com.keyscript.plugin.onboarding.WelcomeDialog
 import com.keyscript.plugin.settings.KeyscriptSettings
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.swing.SwingUtilities
 
 /**
@@ -17,6 +20,7 @@ import javax.swing.SwingUtilities
  */
 @Service(Service.Level.PROJECT)
 class KeyscriptProjectService(private val project: Project) {
+    private val serviceScope = CoroutineScope(Dispatchers.Default)
     private val log = Logger.getInstance(KeyscriptProjectService::class.java)
 
     suspend fun initialize() {
@@ -50,7 +54,7 @@ class KeyscriptProjectService(private val project: Project) {
         val creds = session.loadCredentials()
 
         val hasCredentials = creds != null && creds.first.isNotBlank() && creds.second.isNotBlank()
-        val hasDeviceInfo = settings.deviceServiceUrl.isNotBlank() && settings.deviceName.isNotBlank()
+        val hasDeviceInfo = settings.deviceServiceUrl.isNotBlank()
         val hasServer = settings.proxyEndpoint.isNotBlank()
 
         if (!hasCredentials || !hasDeviceInfo || !hasServer) {
@@ -59,17 +63,14 @@ class KeyscriptProjectService(private val project: Project) {
         }
 
         log.info("Auto-login: credentials available, logging in on project open")
-        Thread({
+        serviceScope.launch(Dispatchers.IO) {
             try {
-                val result = runBlocking {
-                    AuthenticationService.getInstance(project).login(
-                        username = creds!!.first,
-                        password = creds.second,
-                        instance = settings.getDefaultInstance(),
-                        deviceId = settings.deviceServiceUrl,
-                        deviceName = settings.deviceName
-                    )
-                }
+                val result = AuthenticationService.getInstance(project).login(
+                    username = creds!!.first,
+                    password = creds.second,
+                    instance = settings.getDefaultInstance(),
+                    deviceId = settings.deviceServiceUrl
+                )
                 if (result.success) {
                     log.info("Auto-login successful for ${result.userName}")
                 } else {
@@ -78,7 +79,7 @@ class KeyscriptProjectService(private val project: Project) {
             } catch (e: Exception) {
                 log.warn("Auto-login error", e)
             }
-        }, "keyscript-auto-login-startup").start()
+        }
     }
 
     class StartupActivity : ProjectActivity {

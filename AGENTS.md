@@ -21,3 +21,22 @@ There is no active test tree in the current checkout, so new features should add
 
 ## Commit & Pull Request Guidelines
 Recent history uses short, topic-based commit subjects in Title Case, for example `Execution Engine Integration` and `Plugin Settings & Refinement`. Keep commits narrowly scoped and write the first line as a clear summary of the change. PRs should include a concise description, linked issue or task when available, local verification steps, and screenshots or GIFs for UI changes such as tool windows, settings, or status bar updates.
+
+
+## Skill Usage Guide
+
+When working on tasks involving these technologies, invoke the corresponding skill:
+
+| Skill | Invoke When |
+|-------|-------------|
+| gradle | Configures build system, dependency management, and plugin packaging |
+| kotlin | Implements IntelliJ plugin services, async operations, and Kotlin patterns |
+| intellij-platform | Registers extensions, services, tool windows, and IDE integrations |
+| jcef | Integrates Java Chromium Embedded Framework for browser preview |
+| ktor | Manages embedded HTTP proxy server and request routing |
+| jackson | Handles JSON serialization and API payload deserialization |
+| mapping-user-journeys | Maps in-app journeys and identifies friction points in code |
+| typescript | Types CR framework definitions and JavaScript library components |
+| designing-onboarding-paths | Designs onboarding paths, checklists, and first-run UI |
+| orchestrating-feature-adoption | Plans feature discovery, nudges, and adoption flows |
+| instrumenting-product-metrics | Defines product events, funnels, and activation metrics |

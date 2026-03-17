@@ -39,16 +39,25 @@ class ProxyServerService(private val project: Project) : Disposable {
             if (activeProjectPath.isEmpty()) {
                 activeProjectPath = project.basePath ?: ""
             }
-            server = KtorProxyServer(
-                proxyPort = settings.proxyPort,
-                proxyEndpoint = settings.getProxyUrl(),
-                supportedInstances = settings.supportedInstances,
-                servicePort = settings.servicePort,
-                proxyService = this,
-                networkMonitor = NetworkMonitorService.getInstance(project)
-            )
-            server!!.start()
-            log.info("Proxy server started on port ${settings.proxyPort}")
+            try {
+                log.info("Starting proxy: port=${settings.proxyPort}, endpoint=${settings.getProxyUrl()}, instances=${settings.supportedInstances}")
+                val proxyServer = KtorProxyServer(
+                    proxyPort = settings.proxyPort,
+                    proxyEndpoint = settings.getProxyUrl(),
+                    supportedInstances = settings.supportedInstances,
+                    servicePort = settings.servicePort,
+                    proxyService = this,
+                    networkMonitor = NetworkMonitorService.getInstance(project),
+                    session = SessionService.getInstance(project)
+                )
+                proxyServer.start()
+                // Give CIO engine time to bind the port
+                Thread.sleep(500)
+                server = proxyServer
+                log.info("Proxy server started on port ${settings.proxyPort}")
+            } catch (e: Exception) {
+                log.error("Failed to start proxy server on port ${settings.proxyPort}", e)
+            }
         }
     }
 

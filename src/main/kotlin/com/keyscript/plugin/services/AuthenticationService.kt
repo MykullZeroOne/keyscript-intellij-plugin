@@ -1,5 +1,7 @@
 package com.keyscript.plugin.services
 
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.components.Service
@@ -14,50 +16,45 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import javax.net.ssl.X509TrustManager
-import java.net.HttpURLConnection
-import java.net.URI
 import java.net.URLEncoder
+import javax.net.ssl.X509TrustManager
 
 /**
- * Handles authentication with Keystone.
- * - UI login goes through the local proxy (needed for preview/run)
- * - Also performs a JSON "logon" API call directly to Keystone to get
- *   an API session ID for deploy/search operations
+ * Handles authentication with Keystone via the local proxy.
+ * All API calls go through the proxy for consistent session management.
  */
 @Service(Service.Level.PROJECT)
 class AuthenticationService(private val project: Project) {
     private val log = Logger.getInstance(AuthenticationService::class.java)
+    private val mapper = jacksonObjectMapper()
 
     private val httpClient = HttpClient(CIO) {
-        engine {
-            https {
-                trustManager = object : X509TrustManager {
-                    override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
-                    override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
-                    override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
-                }
-            }
-        }
-        followRedirects = false
         expectSuccess = false
         install(HttpTimeout) {
             requestTimeoutMillis = 30_000
             connectTimeoutMillis = 10_000
             socketTimeoutMillis = 30_000
         }
+        engine {
+            https {
+                trustManager = object : X509TrustManager {
+                    override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
+                    override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
+                    override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
+                }
+            }
+        }
     }
 
     /**
-     * Login to Keystone via the proxy's /UserLogin endpoint (for preview/run),
-     * then also obtain a direct API session via JSON logon (for deploy/search).
+     * Login to Keystone via the proxy's /UserLogin endpoint.
+     * The proxy captures the JSESSIONID and uses it for all subsequent requests.
      */
     suspend fun login(
         username: String,
         password: String,
         instance: String,
-        deviceId: String = "",
-        deviceName: String = ""
+        deviceId: String = ""
     ): LoginResult = withContext(Dispatchers.IO) {
         try {
             val proxyBase = ProxyServerService.getInstance(project).getProxyBaseUrl()
@@ -73,7 +70,7 @@ class AuthenticationService(private val project: Project) {
                 }
             }
 
-            // 3. POST /UserLogin through proxy for preview/run session
+            // 3. POST /UserLogin through proxy
             val body = listOf(
                 "loginUsername" to username,
                 "loginPassword" to password,
@@ -89,17 +86,23 @@ class AuthenticationService(private val project: Project) {
             }
 
             val responseBody = response.bodyAsText()
-            log.info("Login response status=${response.status}: ${responseBody.take(200)}")
+            val logSafeBody = responseBody.take(500).replace(Regex("\"loginPassword\":\\s*\"[^\"]*\""), "\"loginPassword\":\"***\"")
+            log.info("Login response status=${response.status}: $logSafeBody")
 
-            // 4. Parse JSON response
-            val jsessionId = extractJsonField(responseBody, "JSESSIONID")
-            val success = responseBody.contains(""""success":true""") ||
-                    responseBody.contains(""""success": true""") ||
-                    jsessionId != null
+            // 4. Parse JSON response (proxy injects JSESSIONID into body)
+            val responseMap = try {
+                mapper.readValue<Map<String, Any>>(responseBody)
+            } catch (e: Exception) {
+                log.warn("Failed to parse login response JSON", e)
+                emptyMap()
+            }
+
+            val jsessionId = responseMap["JSESSIONID"] as? String
+            val success = responseMap["success"] == true || jsessionId != null
 
             if (success && jsessionId != null) {
-                val loginData = parseLoginResponse(responseBody)
-                val userName = extractJsonField(responseBody, "userName") ?: username
+                val loginData = responseMap.filterValues { it is String } as Map<String, String>
+                val userName = responseMap["userName"] as? String ?: username
                 val session = SessionService.getInstance(project)
                 session.setSession(jsessionId, userName, loginData)
                 session.instance = instance
@@ -113,13 +116,10 @@ class AuthenticationService(private val project: Project) {
                     }
                 } catch (_: Exception) {}
 
-                // 5. Obtain API session via JSON logon for deploy/search
-                obtainApiSession(username, password, instance, deviceName)
-
                 notify("Logged in as $userName ($instance)", NotificationType.INFORMATION)
                 LoginResult(true, userName)
             } else {
-                val exception = extractJsonField(responseBody, "exception")
+                val exception = responseMap["exception"] as? String
                 val errorMsg = exception ?: "Login failed — no JSESSIONID in response"
                 notify(errorMsg, NotificationType.ERROR)
                 LoginResult(false, error = errorMsg)
@@ -129,59 +129,6 @@ class AuthenticationService(private val project: Project) {
             val errorMsg = "Connection failed: ${e.message}"
             notify(errorMsg, NotificationType.ERROR)
             LoginResult(false, error = errorMsg)
-        }
-    }
-
-    /**
-     * Send a JSON "logon" query directly to the Keystone API to obtain
-     * a session ID that works for direct API calls (deploy, search).
-     *
-     * Uses the logon block instead of $attr:
-     * { "query": { "logon": { "userName": "...", "deviceName": "...", "password": "..." } } }
-     */
-    private fun obtainApiSession(username: String, password: String, instance: String, deviceName: String) {
-        try {
-            val settings = KeyscriptSettings.getInstance()
-            val apiBase = settings.getKeystoneApiBaseUrl()
-            val url = "$apiBase/$instance"
-
-            // Use device name from login dialog; fall back to saved setting
-            val device = deviceName.ifEmpty { settings.deviceName }
-            val logonJson = """{"query":{"logon":{"userName":"$username","deviceName":"$device","password":"${escapeJson(password)}"}}}"""
-
-            // Log the request (mask password)
-            val logSafeJson = """{"query":{"logon":{"userName":"$username","deviceName":"$device","password":"***"}}}"""
-            log.info("API logon request: POST $url body=$logSafeJson")
-
-            val conn = URI(url).toURL().openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.setRequestProperty("Content-Type", "application/json")
-            conn.connectTimeout = 15_000
-            conn.readTimeout = 15_000
-            conn.doOutput = true
-            conn.outputStream.use { it.write(logonJson.toByteArray()) }
-
-            val status = conn.responseCode
-            val responseBody = try {
-                conn.inputStream.bufferedReader().readText()
-            } catch (_: Exception) {
-                conn.errorStream?.bufferedReader()?.readText() ?: ""
-            }
-
-            log.info("API logon response: status=$status, body=${responseBody.take(500)}")
-
-            // Extract sessionId from the response
-            val apiSessionId = extractJsonField(responseBody, "sessionId")
-                ?: extractJsonField(responseBody, "JSESSIONID")
-
-            if (apiSessionId != null) {
-                SessionService.getInstance(project).setKeystoneApiSession(apiSessionId)
-                log.info("API session obtained via logon: ${apiSessionId.take(8)}...")
-            } else {
-                log.warn("API logon did not return sessionId. Response: ${responseBody.take(300)}")
-            }
-        } catch (e: Exception) {
-            log.warn("API logon failed (deploy may not work): ${e.message}")
         }
     }
 
@@ -198,11 +145,18 @@ class AuthenticationService(private val project: Project) {
 
             val response = httpClient.get("$proxyBase/UserLogin")
             val body = response.bodyAsText()
-            val jsessionId = extractJsonField(body, "JSESSIONID")
+
+            val responseMap = try {
+                mapper.readValue<Map<String, Any>>(body)
+            } catch (e: Exception) {
+                emptyMap()
+            }
+
+            val jsessionId = responseMap["JSESSIONID"] as? String
 
             if (jsessionId != null) {
-                val loginData = parseLoginResponse(body)
-                val userName = extractJsonField(body, "userName") ?: "sso-user"
+                val loginData = responseMap.filterValues { it is String } as Map<String, String>
+                val userName = responseMap["userName"] as? String ?: "sso-user"
                 val session = SessionService.getInstance(project)
                 session.setSession(jsessionId, userName, loginData)
                 session.instance = inst
@@ -214,12 +168,6 @@ class AuthenticationService(private val project: Project) {
                         setBody("""{"jsessionId":"$jsessionId"}""")
                     }
                 } catch (_: Exception) {}
-
-                // Also obtain API session for SSO users
-                val creds = session.loadCredentials()
-                if (creds != null) {
-                    obtainApiSession(creds.first, creds.second, inst, "")
-                }
 
                 notify("SSO login successful: $userName ($inst)", NotificationType.INFORMATION)
                 LoginResult(true, userName)
@@ -237,23 +185,6 @@ class AuthenticationService(private val project: Project) {
         val userName: String? = null,
         val error: String? = null
     )
-
-    private fun extractJsonField(json: String, field: String): String? {
-        val pattern = """"$field"\s*:\s*"([^"]+)"""".toRegex()
-        return pattern.find(json)?.groupValues?.get(1)
-    }
-
-    private fun parseLoginResponse(json: String): Map<String, String> {
-        val result = mutableMapOf<String, String>()
-        val pattern = """"(\w+)"\s*:\s*"([^"]*)"""".toRegex()
-        pattern.findAll(json).forEach { match ->
-            result[match.groupValues[1]] = match.groupValues[2]
-        }
-        return result
-    }
-
-    private fun escapeJson(s: String): String =
-        s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
 
     private fun notify(message: String, type: NotificationType) {
         NotificationGroupManager.getInstance()

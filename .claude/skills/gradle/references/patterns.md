@@ -68,14 +68,17 @@ intellijPlatform {
 ### Bundled plugins
 
 ```kotlin
+// Current setup: local IDE install (dev machine)
 intellijPlatform {
-    intellijIdeaUltimate("2025.1.3")
-    bundledPlugin("com.intellij.java")   // Java PSI, module system
-    bundledPlugin("JavaScript")           // JS file type, PSI for .js files
+    local("/Volumes/Applications/Jetbrains/WebStorm.app")
+    bundledPlugin("JavaScript")  // JS file type, PSI for .js files
 }
+
+// CI / marketplace builds: pin an explicit version instead
+// local(...)  →  intellijIdeaUltimate("2025.1.3")
 ```
 
-Only declare plugins you actually use. Each bundled plugin adds to compile and sandbox setup time. The `JavaScript` plugin is required because Keyscript files are `.js`-based.
+Only declare plugins you actually use. Each bundled plugin adds to compile and sandbox setup time. The `JavaScript` plugin is required because Keyscript files are `.js`-based. For CI builds, replace `local(...)` with a versioned `intellijIdeaUltimate(...)` call so the build is reproducible.
 
 ---
 

@@ -10,11 +10,16 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.util.io.FileUtil
 import com.keyscript.plugin.settings.KeyscriptSettings
 import com.keyscript.plugin.preview.KeyscriptPreviewFileEditor
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
+import java.nio.file.Paths
+import kotlin.io.path.pathString
+import kotlin.io.path.relativeToOrNull
 
 @Service(Service.Level.PROJECT)
 class RunKeyscriptService(private val project: Project) {
@@ -152,11 +157,16 @@ class RunKeyscriptService(private val project: Project) {
         }
 
         // Compute path relative to project root
-        val projectRoot = project.guessProjectDir()?.path ?: project.basePath ?: ""
-        return if (projectRoot.isNotEmpty() && outputFile.absolutePath.startsWith(projectRoot)) {
-            outputFile.absolutePath.removePrefix(projectRoot).removePrefix("/")
+        val projectRootPath = project.guessProjectDir()?.path ?: project.basePath ?: ""
+        return if (projectRootPath.isNotEmpty()) {
+            val relative = Paths.get(outputFile.absolutePath).relativeToOrNull(Paths.get(projectRootPath))
+            if (relative != null) {
+                FileUtil.toSystemIndependentName(relative.pathString)
+            } else {
+                FileUtil.toSystemIndependentName(config.outfile)
+            }
         } else {
-            config.outfile
+            FileUtil.toSystemIndependentName(config.outfile)
         }
     }
 

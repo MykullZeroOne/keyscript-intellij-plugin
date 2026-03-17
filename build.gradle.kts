@@ -1,6 +1,6 @@
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "2.1.0"
+    id("org.jetbrains.kotlin.jvm") version "2.3.0"
     id("org.jetbrains.intellij.platform") version "2.11.0"
 }
 
@@ -16,12 +16,13 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        local("/Volumes/Applications/Jetbrains/WebStorm.app")
+        intellijIdeaUltimate("2025.3.3")
         bundledPlugin("JavaScript")
+        jetbrainsRuntime()
     }
 
-    // Ktor for embedded proxy server (CIO engine — lightweight, no Netty)
-    val ktorVersion = "2.3.12"
+    // Ktor 3.4.1 for embedded proxy server (CIO engine — lightweight, no Netty)
+    val ktorVersion = "3.4.1"
     implementation("io.ktor:ktor-server-core-jvm:$ktorVersion")
     implementation("io.ktor:ktor-server-cio-jvm:$ktorVersion")
     implementation("io.ktor:ktor-server-cors-jvm:$ktorVersion")
@@ -36,13 +37,21 @@ dependencies {
 }
 
 intellijPlatform {
+    instrumentCode = false
+
     pluginConfiguration {
         name = "Keyscript IDE"
         version = "2.0.0"
 
         ideaVersion {
-            sinceBuild = "251"
+            sinceBuild = "253"
             untilBuild = "253.*"
+        }
+    }
+
+    pluginVerification {
+        ides {
+            recommended()
         }
     }
 }

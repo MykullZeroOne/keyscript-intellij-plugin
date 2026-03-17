@@ -6,7 +6,12 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
+import com.intellij.openapi.util.SystemInfo
+import com.intellij.openapi.util.io.FileUtil
 import java.io.File
+import java.nio.file.Paths
+import kotlin.io.path.pathString
+import kotlin.io.path.relativeToOrNull
 
 /**
  * Bundles React/Node projects using esbuild.
@@ -108,27 +113,30 @@ class BundleService(private val project: Project) {
      * 3. Global esbuild on PATH
      */
     fun findEsbuild(bundleRoot: File? = null): String? {
-        // Check bundle root first (e.g., examples/react-keystone/node_modules/.bin/esbuild)
+        val esbuildName = if (SystemInfo.isWindows) "esbuild.cmd" else "esbuild"
+
+        // Check bundle root first
         if (bundleRoot != null) {
-            val localBin = File(bundleRoot, "node_modules/.bin/esbuild")
+            val localBin = File(bundleRoot, "node_modules/.bin/$esbuildName")
             if (localBin.exists() && localBin.canExecute()) return localBin.absolutePath
         }
 
         // Check project root
         val basePath = project.basePath
         if (basePath != null) {
-            val projectBin = File(basePath, "node_modules/.bin/esbuild")
+            val projectBin = File(basePath, "node_modules/.bin/$esbuildName")
             if (projectBin.exists() && projectBin.canExecute()) return projectBin.absolutePath
         }
 
         // Check PATH
         return try {
-            val process = ProcessBuilder("which", "esbuild")
+            val probeCmd = if (SystemInfo.isWindows) "where" else "which"
+            val process = ProcessBuilder(probeCmd, "esbuild")
                 .redirectErrorStream(true)
                 .start()
-            val result = process.inputStream.bufferedReader().readText().trim()
+            val result = process.inputStream.bufferedReader().readLines().firstOrNull()?.trim()
             process.waitFor()
-            if (process.exitValue() == 0 && result.isNotEmpty()) result else null
+            if (process.exitValue() == 0 && !result.isNullOrEmpty()) result else null
         } catch (_: Exception) {
             null
         }
@@ -257,7 +265,8 @@ class BundleService(private val project: Project) {
         val packageJson = File(root, "package.json")
         if (!packageJson.exists()) {
             return try {
-                val process = ProcessBuilder("npm", "init", "-y")
+                val npmCmd = if (SystemInfo.isWindows) listOf("cmd", "/c", "npm") else listOf("npm")
+                val process = ProcessBuilder(npmCmd + listOf("init", "-y"))
                     .directory(root)
                     .redirectErrorStream(true)
                     .start()
@@ -273,7 +282,8 @@ class BundleService(private val project: Project) {
 
     private fun installEsbuildPackage(root: File): BundleResult {
         return try {
-            val process = ProcessBuilder("npm", "install", "--save-dev", "esbuild")
+            val npmCmd = if (SystemInfo.isWindows) listOf("cmd", "/c", "npm") else listOf("npm")
+            val process = ProcessBuilder(npmCmd + listOf("install", "--save-dev", "esbuild"))
                 .directory(root)
                 .redirectErrorStream(true)
                 .start()
