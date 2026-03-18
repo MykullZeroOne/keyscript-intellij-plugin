@@ -61,7 +61,9 @@ dependencies {
     implementation("io.ktor:ktor-client-content-negotiation-jvm:$ktorVersion", excludeCoroutines)
 
     // JSON
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.2")
+    val jacksonVersion = "2.18.2" // Stable version
+    implementation("com.fasterxml.jackson.core:jackson-databind:$jacksonVersion")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:$jacksonVersion")
 }
 
 intellijPlatform {
