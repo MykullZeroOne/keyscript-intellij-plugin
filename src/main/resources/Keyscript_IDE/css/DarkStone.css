@@ -1,0 +1,25 @@
+@import url("/ext-3.2.2/resources/css/xtheme-gray.css");
+
+body {
+  filter: invert(85%) hue-rotate(180deg);
+}
+
+img, iframe, .cr-initialTab{
+  filter: invert(100%) hue-rotate(180deg) !important;
+}
+
+iframe {
+  background-color: white;
+}
+
+.x-form-trigger, .keyscript {
+  filter: invert(0%) !important;
+}
+
+.ext-el-mask {
+  background-color: #fff;
+}
+
+a:hover {
+  color: #0077ff;
+}

@@ -1,0 +1,136 @@
+<templateSet group="Keyscript">
+    <!-- ═══ XML / Transaction Snippets ═══ -->
+
+    <template name="cr-xml-transaction" value="const xml = new CR.XML();&#10;const sequence = xml.addContainer(xml.getRootElement(), 'sequence');&#10;const transaction = xml.addContainer(sequence, 'transaction');&#10;const step = xml.addContainer(transaction, 'step');&#10;const record = xml.addContainer(step, 'record');&#10;xml.addText(record, 'tableName', '$TABLE$');&#10;xml.addOption(record, 'operation', '$OP$');&#10;xml.addText(record, 'targetSerial', $SERIAL$);&#10;xml.addOption(record, 'includeAllColumns', 'Y');&#10;$END$"
+             description="CR.XML transaction template" toReformat="true" toShortenFQNames="false">
+        <variable name="TABLE" expression="" defaultValue="&quot;TABLE&quot;" alwaysStopAt="true"/>
+        <variable name="OP" expression="" defaultValue="&quot;V&quot;" alwaysStopAt="true"/>
+        <variable name="SERIAL" expression="" defaultValue="&quot;1&quot;" alwaysStopAt="true"/>
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+
+    <template name="cr-xml-multi-step" value="const xml = new CR.XML();&#10;const sequence = xml.addContainer(xml.getRootElement(), 'sequence');&#10;const transaction = xml.addContainer(sequence, 'transaction');&#10;&#10;// Step 1: $STEP1_DESC$&#10;const step1 = xml.addContainer(transaction, 'step');&#10;const record1 = xml.addContainer(step1, 'record');&#10;xml.addText(record1, 'tableName', '$TABLE1$');&#10;xml.addOption(record1, 'operation', 'V');&#10;xml.addText(record1, 'targetSerial', $SERIAL1$);&#10;xml.addOption(record1, 'includeAllColumns', 'Y');&#10;&#10;// Step 2: $STEP2_DESC$&#10;const step2 = xml.addContainer(transaction, 'step');&#10;const record2 = xml.addContainer(step2, 'record');&#10;xml.addText(record2, 'tableName', '$TABLE2$');&#10;xml.addOption(record2, 'operation', 'U');&#10;xml.addText(record2, 'targetSerial', $SERIAL2$);&#10;$END$"
+             description="Multi-step XML transaction" toReformat="true" toShortenFQNames="false">
+        <variable name="STEP1_DESC" expression="" defaultValue="&quot;View record&quot;" alwaysStopAt="true"/>
+        <variable name="TABLE1" expression="" defaultValue="&quot;TABLE&quot;" alwaysStopAt="true"/>
+        <variable name="SERIAL1" expression="" defaultValue="&quot;serial&quot;" alwaysStopAt="true"/>
+        <variable name="STEP2_DESC" expression="" defaultValue="&quot;Update record&quot;" alwaysStopAt="true"/>
+        <variable name="TABLE2" expression="" defaultValue="&quot;TABLE&quot;" alwaysStopAt="true"/>
+        <variable name="SERIAL2" expression="" defaultValue="&quot;serial&quot;" alwaysStopAt="true"/>
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+
+    <template name="cr-xml-field" value="const field = xml.addContainer($RECORD$, 'field');&#10;xml.addText(field, 'columnName', '$COLUMN$');&#10;xml.addText(field, 'newContents', $VALUE$);&#10;$END$"
+             description="Add field to XML record" toReformat="true" toShortenFQNames="false">
+        <variable name="RECORD" expression="" defaultValue="&quot;record&quot;" alwaysStopAt="true"/>
+        <variable name="COLUMN" expression="" defaultValue="&quot;COLUMN_NAME&quot;" alwaysStopAt="true"/>
+        <variable name="VALUE" expression="" defaultValue="&quot;value&quot;" alwaysStopAt="true"/>
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+
+    <!-- ═══ AJAX / Network Snippets ═══ -->
+
+    <template name="cr-ajax-request" value="CR.Core.ajaxRequest({&#10;    url: 'DirectXMLPostJSON',&#10;    xmlData: $XML$.getXMLDocument(),&#10;    success: function(response) {&#10;        $END$&#10;    },&#10;    failure: function(error) {&#10;        console.error(error);&#10;    }&#10;});"
+             description="CR.Core.ajaxRequest call" toReformat="true" toShortenFQNames="false">
+        <variable name="XML" expression="" defaultValue="&quot;xml&quot;" alwaysStopAt="true"/>
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+
+    <template name="cr-ajax-promise" value="new Promise((resolve, reject) => {&#10;    CR.Core.ajaxRequest({&#10;        url: 'DirectXMLPostJSON',&#10;        xmlData: $XML$.getXMLDocument(),&#10;        success: function(response) {&#10;            const data = CR.JSON.parse(response.responseText);&#10;            resolve(data);&#10;        },&#10;        failure: function(error) {&#10;            reject(error);&#10;        }&#10;    });&#10;})"
+             description="Promise-wrapped ajaxRequest" toReformat="true" toShortenFQNames="false">
+        <variable name="XML" expression="" defaultValue="&quot;xml&quot;" alwaysStopAt="true"/>
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+
+    <template name="cr-ajax-function" value="async function $NAME$($PARAM$) {&#10;    const xml = new CR.XML();&#10;    const sequence = xml.addContainer(xml.getRootElement(), 'sequence');&#10;    const transaction = xml.addContainer(sequence, 'transaction');&#10;    const step = xml.addContainer(transaction, 'step');&#10;    const record = xml.addContainer(step, 'record');&#10;    xml.addText(record, 'tableName', '$TABLE$');&#10;    xml.addOption(record, 'operation', 'V');&#10;    xml.addText(record, 'targetSerial', $PARAM$);&#10;    xml.addOption(record, 'includeAllColumns', 'Y');&#10;&#10;    return new Promise((resolve, reject) => {&#10;        CR.Core.ajaxRequest({&#10;            url: 'DirectXMLPostJSON',&#10;            xmlData: xml.getXMLDocument(),&#10;            success: function(response) {&#10;                const records = [];&#10;                const errors = [];&#10;                const data = CR.JSON.parse(response.responseText);&#10;                const query = data.query;&#10;                if (query) {&#10;                    Ext.each(query.sequence, (seq) => {&#10;                        Ext.each(seq.transaction, (tran) => {&#10;                            Ext.each(tran.exception, (ex) => errors.push(ex.message));&#10;                            Ext.each(tran.step, (s) => {&#10;                                if (s.record) records.push(s.record);&#10;                            });&#10;                        });&#10;                    });&#10;                }&#10;                if (errors.length) reject(errors);&#10;                else resolve(records);&#10;            },&#10;            failure: reject&#10;        });&#10;    });&#10;}"
+             description="Complete async data fetch function" toReformat="true" toShortenFQNames="false">
+        <variable name="NAME" expression="" defaultValue="&quot;fetchData&quot;" alwaysStopAt="true"/>
+        <variable name="PARAM" expression="" defaultValue="&quot;serial&quot;" alwaysStopAt="true"/>
+        <variable name="TABLE" expression="" defaultValue="&quot;TABLE&quot;" alwaysStopAt="true"/>
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+
+    <template name="cr-parse-response" value="const responseJson = CR.JSON.parse($RESPONSE$.responseText);&#10;const query = responseJson.query;&#10;const records = [];&#10;const errors = [];&#10;if (query) {&#10;    Ext.each(query.sequence, (sequence) => {&#10;        Ext.each(sequence.transaction, (transaction) => {&#10;            Ext.each(transaction.exception, (ex) => errors.push(ex.message));&#10;            Ext.each(transaction.step, (step) => {&#10;                if (step.record) records.push(step.record);&#10;            });&#10;        });&#10;    });&#10;}&#10;$END$"
+             description="Parse DirectXMLPostJSON response" toReformat="true" toShortenFQNames="false">
+        <variable name="RESPONSE" expression="" defaultValue="&quot;response&quot;" alwaysStopAt="true"/>
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+
+    <template name="cr-get-field" value="$RECORD$.field.find(f => f.columnName === '$COLUMN$')?.newContents"
+             description="Get field value from record" toReformat="false" toShortenFQNames="false">
+        <variable name="RECORD" expression="" defaultValue="&quot;record&quot;" alwaysStopAt="true"/>
+        <variable name="COLUMN" expression="" defaultValue="&quot;COLUMN_NAME&quot;" alwaysStopAt="true"/>
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+
+    <!-- ═══ UI Component Snippets ═══ -->
+
+    <template name="cr-grid-panel" value="const $STORE$ = new Ext.data.JsonStore({&#10;    fields: [&#10;        { name: '$FIELD1$', type: 'string' },&#10;        { name: '$FIELD2$', type: 'string' },&#10;    ],&#10;    data: []&#10;});&#10;&#10;const $GRID$ = new CR.GridPanel({&#10;    title: '$TITLE$',&#10;    store: $STORE$,&#10;    columns: [&#10;        { header: '$FIELD1$', dataIndex: '$FIELD1$', width: 100 },&#10;        { header: '$FIELD2$', dataIndex: '$FIELD2$', width: 200 },&#10;    ],&#10;    autoExpandColumn: '$FIELD2$',&#10;    stripeRows: true,&#10;    height: $HEIGHT$,&#10;    listeners: {&#10;        rowclick: function(grid, rowIndex) {&#10;            const record = grid.getStore().getAt(rowIndex);&#10;            $END$&#10;        }&#10;    }&#10;});"
+             description="CR.GridPanel with store and columns" toReformat="true" toShortenFQNames="false">
+        <variable name="STORE" expression="" defaultValue="&quot;store&quot;" alwaysStopAt="true"/>
+        <variable name="GRID" expression="" defaultValue="&quot;grid&quot;" alwaysStopAt="true"/>
+        <variable name="TITLE" expression="" defaultValue="&quot;Grid Title&quot;" alwaysStopAt="true"/>
+        <variable name="FIELD1" expression="" defaultValue="&quot;serial&quot;" alwaysStopAt="true"/>
+        <variable name="FIELD2" expression="" defaultValue="&quot;description&quot;" alwaysStopAt="true"/>
+        <variable name="HEIGHT" expression="" defaultValue="&quot;400&quot;" alwaysStopAt="true"/>
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+
+    <template name="cr-editor-grid" value="const $GRID$ = new CR.EditorGridPanel({&#10;    title: '$TITLE$',&#10;    crColumns: [&#10;        { header: '$COLUMN$', dataIndex: '$FIELD$', width: 150,&#10;          editor: new Ext.form.TextField() },&#10;    ],&#10;    crAutoCommit: false,&#10;    clicksToEdit: 1,&#10;    height: $HEIGHT$,&#10;    tbar: [&#10;        { text: 'Add Row', handler: function() { $GRID$.crAddRow(); } },&#10;        { text: 'Remove', handler: function() { $GRID$.crRemoveSelected(); } },&#10;        '-',&#10;        { text: 'Save', handler: function() {&#10;            const modified = $GRID$.crGetModifiedRecords();&#10;            $END$&#10;        }},&#10;    ]&#10;});"
+             description="CR.EditorGridPanel with inline editing" toReformat="true" toShortenFQNames="false">
+        <variable name="GRID" expression="" defaultValue="&quot;grid&quot;" alwaysStopAt="true"/>
+        <variable name="TITLE" expression="" defaultValue="&quot;Editable Grid&quot;" alwaysStopAt="true"/>
+        <variable name="COLUMN" expression="" defaultValue="&quot;Column&quot;" alwaysStopAt="true"/>
+        <variable name="FIELD" expression="" defaultValue="&quot;field&quot;" alwaysStopAt="true"/>
+        <variable name="HEIGHT" expression="" defaultValue="&quot;400&quot;" alwaysStopAt="true"/>
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+
+    <template name="cr-form-panel" value="const $FORM$ = new CR.FormPanel({&#10;    title: '$TITLE$',&#10;    labelWidth: $LABELWIDTH$,&#10;    bodyStyle: 'padding: 10px',&#10;    defaultType: 'textfield',&#10;    items: [&#10;        new CR.TextField({&#10;            crColumnName: '$TEXTFIELD$',&#10;            crColumnDescription: '$TEXTLABEL$',&#10;            width: 250&#10;        }),&#10;        new CR.DateField({&#10;            crColumnName: '$DATEFIELD$',&#10;            crColumnDescription: '$DATELABEL$'&#10;        }),&#10;        new CR.MoneyField({&#10;            crColumnName: '$MONEYFIELD$',&#10;            crColumnDescription: '$MONEYLABEL$'&#10;        }),&#10;    ],&#10;    buttons: [&#10;        { text: 'Save', handler: function() {&#10;            const fields = CR.Core.findFields($FORM$);&#10;            $END$&#10;        }},&#10;        { text: 'Cancel', handler: function() { $FORM$.crFocusFirstField(); } }&#10;    ]&#10;});"
+             description="CR.FormPanel with CR fields" toReformat="true" toShortenFQNames="false">
+        <variable name="FORM" expression="" defaultValue="&quot;form&quot;" alwaysStopAt="true"/>
+        <variable name="TITLE" expression="" defaultValue="&quot;Form Title&quot;" alwaysStopAt="true"/>
+        <variable name="LABELWIDTH" expression="" defaultValue="&quot;120&quot;" alwaysStopAt="true"/>
+        <variable name="TEXTFIELD" expression="" defaultValue="&quot;FIELD_NAME&quot;" alwaysStopAt="true"/>
+        <variable name="TEXTLABEL" expression="" defaultValue="&quot;Field Label&quot;" alwaysStopAt="true"/>
+        <variable name="DATEFIELD" expression="" defaultValue="&quot;DATE_FIELD&quot;" alwaysStopAt="true"/>
+        <variable name="DATELABEL" expression="" defaultValue="&quot;Date Label&quot;" alwaysStopAt="true"/>
+        <variable name="MONEYFIELD" expression="" defaultValue="&quot;AMOUNT&quot;" alwaysStopAt="true"/>
+        <variable name="MONEYLABEL" expression="" defaultValue="&quot;Amount Label&quot;" alwaysStopAt="true"/>
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+
+    <template name="cr-tab-panel" value="const $TABS$ = new CR.TabPanel({&#10;    activeTab: 0,&#10;    region: '$REGION$',&#10;    items: [&#10;        {&#10;            title: '$TAB1$',&#10;            layout: 'fit',&#10;            items: [$END$]&#10;        },&#10;        {&#10;            title: '$TAB2$',&#10;            layout: 'fit',&#10;            items: []&#10;        }&#10;    ]&#10;});"
+             description="CR.TabPanel with tabs" toReformat="true" toShortenFQNames="false">
+        <variable name="TABS" expression="" defaultValue="&quot;tabs&quot;" alwaysStopAt="true"/>
+        <variable name="REGION" expression="" defaultValue="&quot;center&quot;" alwaysStopAt="true"/>
+        <variable name="TAB1" expression="" defaultValue="&quot;Tab 1&quot;" alwaysStopAt="true"/>
+        <variable name="TAB2" expression="" defaultValue="&quot;Tab 2&quot;" alwaysStopAt="true"/>
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+
+    <template name="cr-viewport" value="const panel = new CR.Panel({&#10;    region: 'center',&#10;    layout: '$LAYOUT$',&#10;    items: [$END$]&#10;});&#10;&#10;CR.Core.viewPort = new Ext.Viewport({&#10;    layout: 'border',&#10;    renderTo: CR.Script.scriptDefaultPanelId,&#10;    items: [panel]&#10;});"
+             description="CR.Panel + Ext.Viewport setup" toReformat="true" toShortenFQNames="false">
+        <variable name="LAYOUT" expression="" defaultValue="&quot;border&quot;" alwaysStopAt="true"/>
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+
+    <template name="cr-defer" value="CR.Core.defer(function() {&#10;    $END$&#10;});"
+             description="CR.Core.defer block" toReformat="true" toShortenFQNames="false">
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+
+    <template name="cr-display-exceptions" value="if (errors.length) {&#10;    CR.Core.displayExceptions({ items: errors });&#10;    return;&#10;}"
+             description="Display exceptions if any" toReformat="true" toShortenFQNames="false">
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+
+    <template name="cr-search-json" value="const searchXml = new CR.XML();&#10;const seq = searchXml.addContainer(searchXml.getRootElement(), 'sequence');&#10;const tran = searchXml.addContainer(seq, 'transaction');&#10;const step = searchXml.addContainer(tran, 'step');&#10;const search = searchXml.addContainer(step, 'search');&#10;searchXml.addText(search, 'tableName', '$TABLE$');&#10;searchXml.addText(search, 'filterName', '$FILTER$');&#10;searchXml.addOption(search, 'includeSelectColumns', 'Y');&#10;searchXml.addOption(search, 'includeTotalHitCount', 'Y');&#10;searchXml.addText(search, 'returnLimit', $LIMIT$);&#10;const param = searchXml.addContainer(search, 'parameter');&#10;searchXml.addText(param, 'contents', $QUERY$);&#10;&#10;CR.Core.ajaxRequest({&#10;    url: 'SearchJSON',&#10;    xmlData: searchXml.getXMLDocument(),&#10;    success: function(response) {&#10;        const data = CR.JSON.parse(response.responseText);&#10;        $END$&#10;    }&#10;});"
+             description="SearchJSON request template" toReformat="true" toShortenFQNames="false">
+        <variable name="TABLE" expression="" defaultValue="&quot;PERSON&quot;" alwaysStopAt="true"/>
+        <variable name="FILTER" expression="" defaultValue="&quot;BY_LAST_FIRST_MIDDLE_NAME&quot;" alwaysStopAt="true"/>
+        <variable name="LIMIT" expression="" defaultValue="&quot;20&quot;" alwaysStopAt="true"/>
+        <variable name="QUERY" expression="" defaultValue="&quot;searchTerm&quot;" alwaysStopAt="true"/>
+        <context><option name="KEYSCRIPT_JS" value="true"/></context>
+    </template>
+</templateSet>

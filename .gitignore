@@ -1,0 +1,22 @@
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+
+# Gradle
+.gradle/
+build/
+out/
+gradle.properties
+
+# Log files
+*.log
+
+# Misc
+.DS_Store
+.intellijPlatform/
+/.zenflow/
+/.zencoder/
+.kotlin/
+node_modules/

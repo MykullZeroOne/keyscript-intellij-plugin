@@ -1,0 +1,65 @@
+<html>
+  {{ head-section }}
+  <body>
+    <script type="text/javascript">
+      // Global error handler — catch ALL uncaught errors and show them
+      window.onerror = function(msg, url, line, col, error) {
+        console.error("[KeyScript IDE] Uncaught error:", msg, "at", url, "line", line);
+        var div = document.getElementById('ks-error-display');
+        if (!div) {
+          div = document.createElement('div');
+          div.id = 'ks-error-display';
+          div.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#2d0000;color:#ff6b6b;font:12px monospace;padding:8px 12px;z-index:999999;max-height:200px;overflow:auto;border-top:2px solid #ff0000;';
+          document.body.appendChild(div);
+        }
+        div.innerHTML += '<div><b>' + msg + '</b> at line ' + line + '</div>';
+      };
+      window.addEventListener('unhandledrejection', function(e) {
+        console.error("[KeyScript IDE] Unhandled promise rejection:", e.reason);
+      });
+
+      // Runs AFTER keyscript-all.js (synchronous head scripts)
+      window.CRFormatXML = true;
+      var scriptParameters = {{ scriptParameters }};
+      scriptParameters.crlogin = scriptParameters.crlogin || {};
+      scriptParameters.crscript = scriptParameters.crscript || {};
+      CR.Login = CR.Login || {};
+      CR.Script = CR.Script || {};
+
+      // Set JSESSIONID immediately so getJSessionID() can find it
+      if (scriptParameters.crlogin.JSESSIONID) {
+        CR.Login.JSESSIONID = scriptParameters.crlogin.JSESSIONID;
+        document.cookie = "JSESSIONID=" + scriptParameters.crlogin.JSESSIONID + "; path=/";
+      }
+
+      CR.Core.defer(function () {
+        if (window.Ext && Ext.apply) {
+          Ext.apply(CR.Login, scriptParameters.crlogin);
+          Ext.apply(CR.Script, scriptParameters.crscript);
+        } else {
+          for (var loginKey in scriptParameters.crlogin) {
+            if (Object.prototype.hasOwnProperty.call(scriptParameters.crlogin, loginKey)) {
+              CR.Login[loginKey] = scriptParameters.crlogin[loginKey];
+            }
+          }
+          for (var scriptKey in scriptParameters.crscript) {
+            if (Object.prototype.hasOwnProperty.call(scriptParameters.crscript, scriptKey)) {
+              CR.Script[scriptKey] = scriptParameters.crscript[scriptKey];
+            }
+          }
+        }
+        CR.Script.scriptSerial = "";
+        CR.Script.scriptDescription = "{{ script }}";
+        CR._scriptReady = true;
+        var script = document.createElement("script");
+        script.src = "{{ scriptSrc }}";
+        script.onerror = function(e) {
+          console.error("[KeyScript IDE] Failed to load script: {{ scriptSrc }}", e);
+          document.body.innerHTML = '<div style="padding:20px;color:#c00;font-family:sans-serif;">' +
+            '<h3>Script Load Error</h3><p>Failed to load: {{ scriptSrc }}</p></div>';
+        };
+        document.body.appendChild(script);
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,124 @@
+<idea-plugin>
+    <id>com.keyscript.plugin</id>
+    <name>Keyscript IDE</name>
+    <vendor>Keyscript</vendor>
+
+    <description><![CDATA[
+    Development environment for Keystone scripts. Provides JCEF preview, embedded proxy,
+    authentication, script parameters, CR framework completions, and developer tools.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends optional="true" config-file="javascript-support.xml">JavaScript</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Settings -->
+        <applicationConfigurable instance="com.keyscript.plugin.settings.KeyscriptSettingsConfigurable"
+                                 id="com.keyscript.plugin.settings"
+                                 displayName="Keyscript IDE"/>
+        <projectConfigurable instance="com.keyscript.plugin.settings.KeyscriptProjectConfigurable"
+                             id="com.keyscript.plugin.settings.project"
+                             displayName="Keyscript IDE"
+                             parentId="language"/>
+
+        <!-- Startup -->
+        <postStartupActivity implementation="com.keyscript.plugin.services.KeyscriptProjectService$StartupActivity"/>
+
+        <!-- Grouped Tool Windows (secondary=true prevents auto-activation on startup) -->
+        <toolWindow id="Keyscript Workspace" anchor="right" secondary="true"
+                    factoryClass="com.keyscript.plugin.toolwindow.KeyscriptWorkspaceToolWindowFactory"
+                    icon="AllIcons.General.Web"/>
+        <toolWindow id="Keyscript Data Tools" anchor="bottom" secondary="true"
+                    factoryClass="com.keyscript.plugin.toolwindow.KeyscriptDataToolsToolWindowFactory"
+                    icon="AllIcons.Nodes.DataTables"/>
+        <toolWindow id="Keyscript Diagnostics" anchor="bottom" secondary="true"
+                    factoryClass="com.keyscript.plugin.toolwindow.KeyscriptDiagnosticsToolWindowFactory"
+                    icon="AllIcons.Debugger.Console"/>
+
+        <!-- Run Configuration -->
+        <configurationType implementation="com.keyscript.plugin.runconfig.KeyscriptRunConfigurationType"/>
+        <runConfigurationProducer implementation="com.keyscript.plugin.runconfig.KeyscriptRunConfigurationProducer"/>
+        <programRunner implementation="com.keyscript.plugin.runconfig.KeyscriptProgramRunner"/>
+
+        <!-- Completions -->
+        <fileEditorProvider id="keyscript-split-preview"
+                            implementation="com.keyscript.plugin.preview.KeyscriptSplitEditorProvider"/>
+
+        <!-- Live Templates -->
+        <liveTemplateContext contextId="KEYSCRIPT_JS"
+                            implementation="com.keyscript.plugin.completion.KeyscriptTemplateContext"/>
+        <defaultLiveTemplates file="/liveTemplates/Keyscript.xml"/>
+
+        <!-- Status Bar -->
+        <statusBarWidgetFactory id="KeyscriptLoginStatus"
+                                 implementation="com.keyscript.plugin.statusbar.LoginStatusBarWidgetFactory"
+                                 order="after position"/>
+
+        <!-- New Project -->
+        <moduleBuilder builderClass="com.keyscript.plugin.project.KeyscriptModuleBuilder"
+                       id="KEYSCRIPT_MODULE"
+                       order="first"/>
+
+        <!-- File Templates -->
+        <internalFileTemplate name="Keyscript File"/>
+
+        <!-- Notifications -->
+        <notificationGroup id="Keyscript" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <!-- New File action -->
+        <action id="Keyscript.NewFile"
+                class="com.keyscript.plugin.actions.NewKeyscriptFileAction"
+                text="Keyscript File"
+                description="Create a new Keyscript file"
+                icon="AllIcons.General.Web">
+            <add-to-group group-id="NewGroup" anchor="before" relative-to-action="NewFile"/>
+        </action>
+
+        <group id="KeyscriptMenu" text="Keyscript" popup="true">
+            <add-to-group group-id="MainMenu" anchor="last"/>
+            <action id="Keyscript.GettingStarted"
+                    class="com.keyscript.plugin.actions.ShowGettingStartedAction"
+                    text="Getting Started"
+                    description="Open the Keyscript IDE setup guide"
+                    icon="AllIcons.General.Information"/>
+            <separator/>
+            <action id="Keyscript.Login"
+                    class="com.keyscript.plugin.actions.LoginAction"
+                    text="Login to Keystone"
+                    description="Authenticate with Keystone server"/>
+            <action id="Keyscript.RunScript"
+                    class="com.keyscript.plugin.actions.RunKeyscriptAction"
+                    text="Run Keyscript"
+                    description="Run the current file as a Keyscript"
+                    icon="AllIcons.Actions.Execute">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F10"/>
+                <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+                <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+            </action>
+            <action id="Keyscript.OpenInChrome"
+                    class="com.keyscript.plugin.actions.OpenInChromeAction"
+                    text="Open Preview in Chrome"
+                    description="Open the current script preview in Chrome browser"/>
+            <separator/>
+            <action id="Keyscript.Deploy"
+                    class="com.keyscript.plugin.actions.DeployAction"
+                    text="Deploy Script..."
+                    description="Deploy the current script to a Keystone environment"
+                    icon="AllIcons.Actions.Upload">
+                <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            </action>
+            <action id="Keyscript.DownloadScript"
+                    class="com.keyscript.plugin.actions.DownloadScriptAction"
+                    text="Download Script..."
+                    description="Download a deployed script from Keystone"
+                    icon="AllIcons.Actions.Download"/>
+            <action id="Keyscript.Bundle"
+                    class="com.keyscript.plugin.actions.BundleAction"
+                    text="Bundle (esbuild)"
+                    description="Bundle React/Node project using esbuild"
+                    icon="AllIcons.Actions.Compile"/>
+        </group>
+    </actions>
+</idea-plugin>

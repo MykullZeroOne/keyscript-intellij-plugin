@@ -1,0 +1,13 @@
+window.CRRev = '2023_03_00v01.00';
+window.CRCopyright = '2023';
+window.CRCB = '2023_03_00v01.00_5512';
+window.CR = window.CR || {};
+CR.Core = CR.Core || {};
+CR.Core.extBaseURL = '../ext-3.2.2';
+// CR.Core.keyStoneWebAppURL = 'https://localhost:3000/Test/';
+document.write('<link rel="stylesheet" type="text/css" href="ext-3.2.2/resources/css/ext-all.css?Rev='+window.CRCB+'"/>');
+document.write('<link rel="stylesheet" type="text/css" href="ext-3.2.2/resources/css/structure/core.css?Rev='+window.CRCB+'"/>');
+document.write('<script type="text/javascript" src="ext-3.2.2/adapter/ext/ext-base.js?Rev='+window.CRCB+'"></script>');
+document.write('<script type="text/javascript" src="ext-3.2.2/ext-all.js?Rev='+window.CRCB+'"></script>');
+document.write('<script type="text/javascript" src="KeyScript/js/ide-all.js?Rev='+window.CRCB+'"></script>');
+document.write('<link rel="stylesheet" type="text/css" href="KeyScript/css/ide-all.css?Rev='+window.CRCB+'"/>');
