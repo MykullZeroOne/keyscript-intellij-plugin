@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class ProxyRoutes(
     private val proxyEndpoint: String,
+    private val jsonApiUrl: String,
     private val supportedInstances: List<String>,
     private val servicePort: Int,
     private val proxyService: ProxyServerService,
@@ -275,7 +276,7 @@ class ProxyRoutes(
         post("/api/json") {
             val jsonBody = call.receiveText()
             val inst = session.instance.ifEmpty { supportedInstances.firstOrNull() ?: "Test" }
-            val targetUrl = "$proxyUrl/$inst"
+            val targetUrl = "$jsonApiUrl/$inst"
 
             log.info("JSON API proxy: POST $targetUrl, body size=${jsonBody.length}")
 
@@ -294,7 +295,7 @@ class ProxyRoutes(
 
             val responseBody = response.bodyAsText()
             networkMonitor.addEvent(NetworkMonitorService.NetworkEvent(
-                id = requestId, type = "response", status = response.status.value, body = responseBody.take(500)
+                id = requestId, type = "response", status = response.status.value, body = responseBody.take(4000)
             ))
 
             call.respondText(
@@ -475,7 +476,7 @@ class ProxyRoutes(
         }
 
         networkMonitor.addEvent(NetworkMonitorService.NetworkEvent(
-            id = requestId, type = "response", status = response.status.value, body = finalResponseBody.take(500)
+            id = requestId, type = "response", status = response.status.value, body = finalResponseBody.take(4000)
         ))
 
         call.respondText(

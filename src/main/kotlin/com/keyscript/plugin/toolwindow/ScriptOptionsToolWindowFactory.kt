@@ -38,7 +38,7 @@ import javax.swing.event.DocumentListener
  */
 class ScriptOptionsToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val panel = ScriptOptionsPanel(project, scope)
         val content = ContentFactory.getInstance().createContent(panel.component, "", false)
         content.setDisposer(panel)
@@ -375,7 +375,7 @@ class ScriptOptionsPanel(private val project: Project, private val scope: Corout
                 val response = postXml("$proxyBase/SearchJSON", xml)
                 val results = parseSearchResults(response)
 
-                withContext(Dispatchers.Main) {
+                javax.swing.SwingUtilities.invokeLater {
                     personSearchButton.isEnabled = true
                     accountSearchButton.isEnabled = true
                     resultModel.clear()
@@ -402,7 +402,7 @@ class ScriptOptionsPanel(private val project: Project, private val scope: Corout
                 }
             } catch (e: Exception) {
                 log.warn("Search failed", e)
-                withContext(Dispatchers.Main) {
+                javax.swing.SwingUtilities.invokeLater {
                     personSearchButton.isEnabled = true
                     accountSearchButton.isEnabled = true
                     statusLabel.text = "Search error: ${e.message}"

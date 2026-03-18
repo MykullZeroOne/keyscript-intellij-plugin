@@ -211,15 +211,8 @@ class TableBrowserPanel(private val project: Project) {
             border = JBUI.Borders.empty(4)
         }
 
-        // Defer table list loading until user actually interacts
-        statusLabel.text = "Click to load tables..."
-        val loadOnce = object : java.awt.event.ComponentAdapter() {
-            override fun componentShown(e: java.awt.event.ComponentEvent?) {
-                component.removeComponentListener(this)
-                loadTableList()
-            }
-        }
-        component.addComponentListener(loadOnce)
+        // Load table list — waits for login if not yet authenticated
+        loadTableList()
     }
 
     // ─── Panel builders ─────────────────────────────
@@ -327,6 +320,13 @@ class TableBrowserPanel(private val project: Project) {
     // ─── Table loading ──────────────────────────────
 
     private fun loadTableList() {
+        val session = com.keyscript.plugin.services.SessionService.getInstance(project)
+        if (!session.isLoggedIn) {
+            statusLabel.text = "Not logged in — login first, then reopen this tab"
+            // Listen for login and auto-load
+            session.addListener(loginListener)
+            return
+        }
         scope.launch {
             try {
                 val proxyBase = ProxyServerService.getInstance(project).getProxyBaseUrl()
@@ -343,6 +343,14 @@ class TableBrowserPanel(private val project: Project) {
                     statusLabel.text = "Error loading tables: ${e.message}"
                 }
             }
+        }
+    }
+
+    private val loginListener: () -> Unit = {
+        val session = com.keyscript.plugin.services.SessionService.getInstance(project)
+        if (session.isLoggedIn && allTables.isEmpty()) {
+            session.removeListener(loginListener)
+            loadTableList()
         }
     }
 
@@ -365,8 +373,10 @@ class TableBrowserPanel(private val project: Project) {
 
                 // Load search filters (with parameter details)
                 val filterResponse = postToProxy("$proxyBase/TableBrowser", "step=searchList&tableName=$tableName")
+                log.info("searchList response for $tableName: ${filterResponse.take(2000)}")
                 val filters = parseSearchFiltersDetailed(filterResponse)
 
+                log.warn("TABLE_DETAIL: parsed ${columns.size} columns, ${filters.size} filters for $tableName")
                 SwingUtilities.invokeLater {
                     currentTableName = tableName
                     currentColumns = columns
@@ -384,6 +394,7 @@ class TableBrowserPanel(private val project: Project) {
 
                     searchFilterCombo.removeAllItems()
                     filters.forEach { searchFilterCombo.addItem(it.filterName) }
+                    log.warn("TABLE_DETAIL: UI updated — ${columnsModel.rowCount} column rows, ${searchFilterCombo.itemCount} filters in combo")
 
                     // Clear search template and filter detail
                     searchFilterDetailModel.rowCount = 0
@@ -396,6 +407,9 @@ class TableBrowserPanel(private val project: Project) {
                 }
             } catch (e: Exception) {
                 log.warn("Failed to load table detail: $tableName", e)
+                SwingUtilities.invokeLater {
+                    statusLabel.text = "Error loading $tableName: ${e.message}"
+                }
             }
         }
     }
@@ -403,12 +417,19 @@ class TableBrowserPanel(private val project: Project) {
     // ─── Search filter detail & template ────────────
 
     private fun updateSearchFilterDetail(filterName: String) {
-        val filter = currentFilters.find { it.filterName == filterName } ?: return
+        log.warn("FILTER_DETAIL: updateSearchFilterDetail('$filterName'), currentFilters.size=${currentFilters.size}")
+        val filter = currentFilters.find { it.filterName == filterName }
+        if (filter == null) {
+            log.warn("FILTER_DETAIL: filter '$filterName' NOT FOUND in currentFilters: ${currentFilters.map { it.filterName }}")
+            return
+        }
+        log.warn("FILTER_DETAIL: filter '$filterName' has ${filter.parameters.size} params: ${filter.parameters.map { "${it.columnName}(${it.dataType})" }}")
 
         searchFilterDetailModel.rowCount = 0
         filter.parameters.forEach { param ->
             searchFilterDetailModel.addRow(arrayOf(param.columnName, param.dataType))
         }
+        log.warn("FILTER_DETAIL: searchFilterDetailModel now has ${searchFilterDetailModel.rowCount} rows")
 
         updateSearchTemplate()
     }
@@ -676,6 +697,7 @@ class TableBrowserPanel(private val project: Project) {
     }
 
     private fun loadRecord(tableName: String, serial: String) {
+        log.warn("RECORD_VIEW: loadRecord called for $tableName/$serial")
         scope.launch {
             try {
                 val ns = "http://www.corelationinc.com/queryLanguage/v1.0"
@@ -696,16 +718,23 @@ class TableBrowserPanel(private val project: Project) {
 
                 val proxyBase = ProxyServerService.getInstance(project).getProxyBaseUrl()
                 val response = postXml("$proxyBase/DirectXMLPostJSON", xml)
+                log.info("Record view response for $tableName/$serial: ${response.take(2000)}")
                 val fields = parseRecordFields(response)
 
+                log.warn("RECORD_VIEW: parsed ${fields.size} fields, updating UI...")
                 SwingUtilities.invokeLater {
+                    log.warn("RECORD_VIEW: on EDT, adding ${fields.size} rows to recordModel")
                     recordModel.rowCount = 0
                     fields.forEach { (k, v) -> recordModel.addRow(arrayOf(k, v)) }
+                    log.warn("RECORD_VIEW: recordModel now has ${recordModel.rowCount} rows, switching to tab 2")
                     tabbedPane.selectedIndex = 2 // Switch to Record View tab
                     statusLabel.text = "$tableName #$serial — ${fields.size} fields"
                 }
             } catch (e: Exception) {
                 log.warn("Failed to load record $tableName/$serial", e)
+                SwingUtilities.invokeLater {
+                    statusLabel.text = "Error loading record: ${e.message}"
+                }
             }
         }
     }
@@ -726,8 +755,15 @@ class TableBrowserPanel(private val project: Project) {
         val conn = java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+        conn.instanceFollowRedirects = false
         conn.doOutput = true
         conn.outputStream.use { it.write(body.toByteArray()) }
+        val status = conn.responseCode
+        if (status !in 200..299) {
+            val errorBody = conn.errorStream?.bufferedReader()?.readText() ?: ""
+            log.warn("postToProxy $url returned HTTP $status: ${errorBody.take(200)}")
+            throw RuntimeException("HTTP $status from $url")
+        }
         return conn.inputStream.bufferedReader().readText()
     }
 
@@ -735,8 +771,15 @@ class TableBrowserPanel(private val project: Project) {
         val conn = java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "text/xml")
+        conn.instanceFollowRedirects = false
         conn.doOutput = true
         conn.outputStream.use { it.write(xml.toByteArray()) }
+        val status = conn.responseCode
+        if (status !in 200..299) {
+            val errorBody = conn.errorStream?.bufferedReader()?.readText() ?: ""
+            log.warn("postXml $url returned HTTP $status: ${errorBody.take(200)}")
+            throw RuntimeException("HTTP $status from $url")
+        }
         return conn.inputStream.bufferedReader().readText()
     }
 
@@ -803,16 +846,36 @@ class TableBrowserPanel(private val project: Project) {
 
     private fun parseSearchFiltersDetailed(json: String): List<SearchFilterEntry> {
         val root = mapper.readTree(json)
-        val filters = findArray(root, "search") ?: findArray(root, "filter") ?: return emptyList()
+
+        // Keystone returns filters as individual "search" objects within the step array:
+        // query.sequence[].transaction[].step[] → [{searchList:{...}}, {search:{...}}, ...]
+        val searchNodes = mutableListOf<JsonNode>()
+        collectAllDeep(root, "search", searchNodes)
+
+        log.warn("FILTER_PARSE: collectAllDeep('search') found ${searchNodes.size} nodes")
+        if (searchNodes.isNotEmpty()) {
+            log.warn("FILTER_PARSE: first node keys=${searchNodes[0].fieldNames().asSequence().toList()}")
+            log.warn("FILTER_PARSE: first node filterName=${searchNodes[0].path("filterName").asText("MISSING")}")
+        }
+
+        if (searchNodes.isEmpty()) {
+            log.warn("FILTER_PARSE: no 'search' nodes. Root keys=${root.fieldNames().asSequence().toList()}")
+            log.warn("FILTER_PARSE: response=${json.take(2000)}")
+            return emptyList()
+        }
+
         val seen = mutableSetOf<String>()
         val results = mutableListOf<SearchFilterEntry>()
 
-        for (filter in filters) {
+        for (filter in searchNodes) {
             val name = filter.textOrEmpty("filterName")
+            log.warn("FILTER_PARSE: processing filter '$name', keys=${filter.fieldNames().asSequence().toList()}")
             if (name.isEmpty() || !seen.add(name)) continue
 
             val params = mutableListOf<FilterParameter>()
             val paramNode = filter["parameter"] ?: filter["parameters"]
+            log.warn("FILTER_PARSE: filter '$name' paramNode=${if (paramNode != null) "found, isArray=${paramNode.isArray}" else "NULL"}")
+
             if (paramNode != null) {
                 val paramArray = asArray(paramNode)
                 for (p in paramArray) {
@@ -824,34 +887,101 @@ class TableBrowserPanel(private val project: Project) {
                 }
             }
 
+            log.warn("FILTER_PARSE: filter '$name' has ${params.size} params")
             results.add(SearchFilterEntry(name, params))
         }
+        log.warn("FILTER_PARSE: TOTAL ${results.size} filters parsed")
         return results
     }
 
     private fun parseSearchRows(json: String): List<Pair<String, String>> {
         val root = mapper.readTree(json)
-        val rows = findArray(root, "resultRows") ?: return emptyList()
-        return rows.mapNotNull { row ->
-            val serial = row.textOrEmpty("serial")
-            val desc = row.textOrEmpty("rowDescription")
-            if (serial.isNotEmpty()) serial to desc else null
+        log.info("parseSearchRows: keys=${root.fieldNames().asSequence().toList()}, json=${json.take(2000)}")
+
+        // Try flat format first: {"resultRows":[...]}
+        val flatRows = root.get("resultRows") ?: findDeep(root, "resultRows")
+        if (flatRows != null && flatRows.isArray) {
+            return flatRows.mapNotNull { row ->
+                val serial = row.textOrEmpty("serial")
+                val desc = row.textOrEmpty("ROW_DESCRIPTION").ifEmpty { row.textOrEmpty("rowDescription") }
+                if (serial.isNotEmpty()) serial to desc else null
+            }
         }
+
+        // Nested format: query.sequence[].transaction[].step[].search.resultRow[]
+        val search = findDeep(root, "search")
+        val resultRow = search?.get("resultRow") ?: findDeep(root, "resultRow")
+        if (resultRow != null) {
+            val rowList = if (resultRow.isArray) resultRow.toList() else listOf(resultRow)
+            return rowList.mapNotNull { row ->
+                var serial = row.path("serial").asText("")
+                if (serial.isEmpty()) serial = row.get("\$attr")?.path("serial")?.asText("") ?: ""
+                val desc = row.textOrEmpty("rowDescription").ifEmpty { row.textOrEmpty("ROW_DESCRIPTION") }
+                if (serial.isNotEmpty()) serial to desc else null
+            }
+        }
+
+        log.warn("parseSearchRows: no result rows found in response")
+        return emptyList()
     }
 
     private fun parseRecordFields(json: String): List<Pair<String, String>> {
         val root = mapper.readTree(json)
-        // Navigate into query.sequence[].transaction[].step[].record
-        val record = findDeep(root, "record") ?: return emptyList()
-        val skip = setOf("result", "\$attr", "query", "sequence", "transaction", "step", "record")
         val results = mutableListOf<Pair<String, String>>()
-        val fields = record.fields()
-        while (fields.hasNext()) {
-            val (key, value) = fields.next()
-            if (key !in skip && value.isTextual) {
-                results.add(key to value.asText())
+
+        log.warn("RECORD_PARSE: root type=${root.nodeType}, keys=${root.fieldNames().asSequence().toList()}")
+
+        val record = findDeep(root, "record")
+        log.warn("RECORD_PARSE: findDeep('record') = ${if (record != null) "found, keys=${record.fieldNames().asSequence().toList()}" else "NULL"}")
+
+        val skip = setOf("\$attr", "operation", "tableName", "targetSerial", "includeAllColumns",
+            "includeRowDescriptions", "includeColumnMetadata", "includeTableMetadata")
+
+        // Try "field" array first (structured format from DirectXMLPostJSON)
+        val fieldArray = record?.get("field") ?: findDeep(root, "field")
+        log.warn("RECORD_PARSE: field array = ${if (fieldArray != null) "found, isArray=${fieldArray.isArray}, size=${if (fieldArray.isArray) fieldArray.size() else 1}" else "NULL"}")
+
+        if (fieldArray != null) {
+            val fields = if (fieldArray.isArray) fieldArray.toList() else listOf(fieldArray)
+            for (f in fields) {
+                val colName = f.path("columnName").asText("")
+                val contents = f.path("contents").asText("")
+                val newContents = f.path("newContents").asText("")
+                if (colName.isNotEmpty()) {
+                    results.add(colName to contents.ifEmpty { newContents })
+                }
+            }
+            log.warn("RECORD_PARSE: from field array got ${results.size} fields")
+            if (results.isNotEmpty()) return results
+        }
+
+        // Try flat record fields (key=value directly on record node)
+        if (record != null) {
+            val fields = record.fields()
+            while (fields.hasNext()) {
+                val (key, value) = fields.next()
+                if (key in skip) continue
+                val text = nodeToString(value)
+                results.add(key to text)
+            }
+            log.warn("RECORD_PARSE: from flat record got ${results.size} fields")
+            if (results.isNotEmpty()) return results
+        }
+
+        // Last resort: collect ALL field nodes from anywhere in the tree
+        val allFields = mutableListOf<JsonNode>()
+        collectAllDeep(root, "field", allFields)
+        log.warn("RECORD_PARSE: collectAllDeep('field') found ${allFields.size} field nodes")
+        for (f in allFields) {
+            val colName = f.path("columnName").asText("")
+            val contents = f.path("contents").asText("")
+            val newContents = f.path("newContents").asText("")
+            if (colName.isNotEmpty()) {
+                results.add(colName to contents.ifEmpty { newContents })
             }
         }
+
+        log.warn("RECORD_PARSE: final result = ${results.size} fields, first 3: ${results.take(3)}")
         return results
     }
 
@@ -859,7 +989,21 @@ class TableBrowserPanel(private val project: Project) {
 
     private fun JsonNode.textOrEmpty(field: String): String {
         val node = this[field] ?: return ""
-        return if (node.isTextual) node.asText() else node.toString().trim('"')
+        return nodeToString(node)
+    }
+
+    /** Extract a display string from a JSON node, handling Keystone option objects. */
+    private fun nodeToString(node: JsonNode): String = when {
+        node.isTextual -> node.asText()
+        node.isNumber -> node.asText()
+        node.isBoolean -> node.asText()
+        // Keystone option objects: {"option":"S","text":"Text"} → "Text"
+        node.isObject && node.has("text") -> node["text"].asText()
+        // Fallback for option-only: {"option":"Y"} → "Y"
+        node.isObject && node.has("option") -> node["option"].asText()
+        // Keystone content objects: {"contents":"value"} → "value"
+        node.isObject && node.has("contents") -> node["contents"].asText()
+        else -> node.asText("")
     }
 
     /** Normalize a JSON node to an iterable — handles both single object and array. */
@@ -890,6 +1034,19 @@ class TableBrowserPanel(private val project: Project) {
             }
         }
         return null
+    }
+
+    /** Recursively collect ALL nodes with the given key name. */
+    private fun collectAllDeep(node: JsonNode, key: String, results: MutableList<JsonNode>) {
+        if (node.has(key)) {
+            val target = node[key]
+            if (target.isArray) target.forEach { results.add(it) } else results.add(target)
+        }
+        for (child in node) {
+            if (child.isObject || child.isArray) {
+                collectAllDeep(child, key, results)
+            }
+        }
     }
 
     private fun escapeXml(s: String): String = s

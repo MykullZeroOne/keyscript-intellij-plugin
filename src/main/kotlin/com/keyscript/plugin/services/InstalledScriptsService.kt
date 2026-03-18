@@ -12,13 +12,16 @@ import java.net.URI
  * Provides CRUD operations on the Keystone SCRIPT table for browsing
  * and managing server-side installed scripts.
  *
- * All calls go through the local proxy for consistent session management
- * and cookie injection.
+ * All calls use XML format through the local proxy's /SearchJSON and
+ * /DirectXMLPostJSON endpoints — consistent with how the original IDE
+ * and all other data tools operate.
  */
 @Service(Service.Level.PROJECT)
 class InstalledScriptsService(private val project: Project) {
     private val log = Logger.getInstance(InstalledScriptsService::class.java)
     private val mapper = jacksonObjectMapper()
+
+    private val ns = "http://www.corelationinc.com/queryLanguage/v1.0"
 
     data class ScriptRecord(
         val serial: String,
@@ -46,8 +49,7 @@ class InstalledScriptsService(private val project: Project) {
     )
 
     /**
-     * Search the SCRIPT table by description. An empty search term returns all scripts
-     * (up to the return limit).
+     * Search the SCRIPT table by description via /SearchJSON.
      */
     fun listScripts(searchTerm: String = "", returnLimit: Int = 50): ServiceResult<List<ScriptRecord>> {
         val session = SessionService.getInstance(project)
@@ -55,21 +57,17 @@ class InstalledScriptsService(private val project: Project) {
             return ServiceResult(success = false, error = "Not logged in")
         }
 
-        val body = buildSearchJson(session.apiSessionId, searchTerm, returnLimit)
-        val (responseBody, error) = postThroughProxy(body)
+        val xml = buildSearchXml(searchTerm, returnLimit)
+        val (responseBody, error) = postToSearchJson(xml)
         if (error != null) {
             return ServiceResult(success = false, error = error, sessionExpired = error == "Session expired")
         }
 
         return try {
-            log.info("InstalledScripts search raw response (2000 chars): ${responseBody?.take(2000)}")
+            log.info("InstalledScripts search response (2000 chars): ${responseBody?.take(2000)}")
             val json = mapper.readTree(responseBody)
-            val searchNode = findDeep(json, "search")
-            if (searchNode != null) {
-                log.info("InstalledScripts 'search' node keys: ${searchNode.fieldNames().asSequence().toList()}")
-            }
             val results = extractSearchResults(json)
-            log.info("Parsed ${results.size} results, first: ${results.firstOrNull()}")
+            log.info("Parsed ${results.size} results")
             ServiceResult(success = true, data = results)
         } catch (e: Exception) {
             log.warn("Failed to parse script search response", e)
@@ -78,7 +76,7 @@ class InstalledScriptsService(private val project: Project) {
     }
 
     /**
-     * View a SCRIPT record by serial, returning full details including SOURCE_CODE.
+     * View a SCRIPT record by serial via /DirectXMLPostJSON.
      */
     fun viewScript(serial: String): ServiceResult<ScriptDetail> {
         val session = SessionService.getInstance(project)
@@ -86,8 +84,8 @@ class InstalledScriptsService(private val project: Project) {
             return ServiceResult(success = false, error = "Not logged in")
         }
 
-        val body = buildViewJson(session.apiSessionId, serial)
-        val (responseBody, error) = postThroughProxy(body)
+        val xml = buildViewXml(serial)
+        val (responseBody, error) = postToDirectXml(xml)
         if (error != null) {
             return ServiceResult(success = false, error = error, sessionExpired = error == "Session expired")
         }
@@ -97,10 +95,8 @@ class InstalledScriptsService(private val project: Project) {
             val json = mapper.readTree(responseBody)
             val detail = extractScriptDetail(json, serial)
             if (detail != null) {
-                log.info("Parsed script detail: desc=${detail.description}, sourceLen=${detail.sourceCode.length}")
                 ServiceResult(success = true, data = detail)
             } else {
-                log.warn("extractScriptDetail returned null for serial=$serial")
                 ServiceResult(success = false, error = "Could not parse script record")
             }
         } catch (e: Exception) {
@@ -110,7 +106,7 @@ class InstalledScriptsService(private val project: Project) {
     }
 
     /**
-     * Delete a SCRIPT record by serial.
+     * Delete a SCRIPT record by serial via /DirectXMLPostJSON.
      */
     fun deleteScript(serial: String): ServiceResult<Unit> {
         val session = SessionService.getInstance(project)
@@ -118,8 +114,8 @@ class InstalledScriptsService(private val project: Project) {
             return ServiceResult(success = false, error = "Not logged in")
         }
 
-        val body = buildDeleteJson(session.apiSessionId, serial)
-        val (responseBody, error) = postThroughProxy(body)
+        val xml = buildDeleteXml(serial)
+        val (responseBody, error) = postToDirectXml(xml)
         if (error != null) {
             return ServiceResult(success = false, error = error, sessionExpired = error == "Session expired")
         }
@@ -139,101 +135,98 @@ class InstalledScriptsService(private val project: Project) {
         }
     }
 
-    // ─── JSON builders ──────────────────────────────
+    // ─── XML builders (Corelation namespace) ────────
 
-    private fun buildSearchJson(sessionId: String, description: String, returnLimit: Int): String {
-        val search = linkedMapOf<String, Any>(
-            "tableName" to "SCRIPT",
-            "filterName" to "BY_DESCRIPTION",
-            "includeSelectColumns" to mapOf("option" to "Y"),
-            "includeRowDescriptions" to mapOf("option" to "Y"),
-            "includeTotalHitCount" to mapOf("option" to "Y"),
-            "returnLimit" to returnLimit,
-            "parameter" to mapOf(
-                "columnName" to "DESCRIPTION",
-                "contents" to description
-            )
-        )
-
-        val query = linkedMapOf<String, Any>(
-            "\$attr" to mapOf("sessionId" to sessionId),
-            "sequence" to mapOf(
-                "transaction" to mapOf(
-                    "step" to mapOf(
-                        "search" to search
-                    )
-                )
-            )
-        )
-
-        return mapper.writeValueAsString(mapOf("query" to query))
+    private fun buildSearchXml(description: String, returnLimit: Int): String {
+        return """<?xml version="1.0" encoding="UTF-8"?>
+<v1:query xmlns:v1="$ns">
+  <v1:sequence>
+    <v1:transaction>
+      <v1:step>
+        <v1:search>
+          <v1:tableName>SCRIPT</v1:tableName>
+          <v1:filterName>BY_DESCRIPTION</v1:filterName>
+          <v1:includeSelectColumns option="Y"/>
+          <v1:includeRowDescriptions option="Y"/>
+          <v1:includeTotalHitCount option="Y"/>
+          <v1:returnLimit>$returnLimit</v1:returnLimit>
+          <v1:parameter>
+            <v1:columnName>DESCRIPTION</v1:columnName>
+            <v1:contents>${escapeXml(description)}</v1:contents>
+          </v1:parameter>
+        </v1:search>
+      </v1:step>
+    </v1:transaction>
+  </v1:sequence>
+</v1:query>"""
     }
 
-    private fun buildViewJson(sessionId: String, serial: String): String {
-        val record = linkedMapOf<String, Any>(
-            "\$attr" to mapOf("label" to "Main"),
-            "operation" to mapOf("option" to "V"),
-            "includeAllColumns" to mapOf("option" to "Y"),
-            "includeRowDescriptions" to mapOf("option" to "Y"),
-            "tableName" to "SCRIPT",
-            "targetSerial" to serial
-        )
-
-        val query = linkedMapOf<String, Any>(
-            "\$attr" to mapOf("sessionId" to sessionId),
-            "sequence" to mapOf(
-                "transaction" to mapOf(
-                    "step" to mapOf(
-                        "record" to record
-                    )
-                )
-            )
-        )
-
-        return mapper.writeValueAsString(mapOf("query" to query))
+    private fun buildViewXml(serial: String): String {
+        return """<?xml version="1.0" encoding="UTF-8"?>
+<v1:query xmlns:v1="$ns">
+  <v1:sequence>
+    <v1:transaction>
+      <v1:step>
+        <v1:record label="Main">
+          <v1:operation option="V"/>
+          <v1:includeAllColumns option="Y"/>
+          <v1:includeRowDescriptions option="Y"/>
+          <v1:tableName>SCRIPT</v1:tableName>
+          <v1:targetSerial>$serial</v1:targetSerial>
+        </v1:record>
+      </v1:step>
+    </v1:transaction>
+  </v1:sequence>
+</v1:query>"""
     }
 
-    private fun buildDeleteJson(sessionId: String, serial: String): String {
-        val record = linkedMapOf<String, Any>(
-            "\$attr" to mapOf("label" to "Main"),
-            "operation" to mapOf("option" to "D"),
-            "tableName" to "SCRIPT",
-            "targetSerial" to serial
-        )
-
-        val query = linkedMapOf<String, Any>(
-            "\$attr" to mapOf("sessionId" to sessionId),
-            "sequence" to mapOf(
-                "transaction" to mapOf(
-                    "step" to mapOf(
-                        "record" to record
-                    )
-                )
-            )
-        )
-
-        return mapper.writeValueAsString(mapOf("query" to query))
+    private fun buildDeleteXml(serial: String): String {
+        return """<?xml version="1.0" encoding="UTF-8"?>
+<v1:query xmlns:v1="$ns">
+  <v1:sequence>
+    <v1:transaction>
+      <v1:step>
+        <v1:record label="Main">
+          <v1:operation option="D"/>
+          <v1:tableName>SCRIPT</v1:tableName>
+          <v1:targetSerial>$serial</v1:targetSerial>
+        </v1:record>
+      </v1:step>
+    </v1:transaction>
+  </v1:sequence>
+</v1:query>"""
     }
+
+    private fun escapeXml(s: String): String =
+        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace("\"", "&quot;").replace("'", "&apos;")
 
     // ─── HTTP (through proxy) ───────────────────────
 
-    /**
-     * POST JSON through the local proxy's /api/json endpoint.
-     * The proxy injects the JSESSIONID cookie and forwards to Keystone.
-     */
-    private fun postThroughProxy(jsonBody: String): Pair<String?, String?> {
+    private fun postToSearchJson(xml: String): Pair<String?, String?> {
         val proxyBase = ProxyServerService.getInstance(project).getProxyBaseUrl()
-        val url = "$proxyBase/api/json"
-        log.info("InstalledScriptsService POST to proxy $url, body size=${jsonBody.length}")
+        val url = "$proxyBase/SearchJSON"
+        return postXml(url, xml)
+    }
+
+    private fun postToDirectXml(xml: String): Pair<String?, String?> {
+        val proxyBase = ProxyServerService.getInstance(project).getProxyBaseUrl()
+        val url = "$proxyBase/DirectXMLPostJSON"
+        return postXml(url, xml)
+    }
+
+    private fun postXml(url: String, xml: String): Pair<String?, String?> {
+        log.info("InstalledScriptsService POST $url, xml size=${xml.length}")
 
         return try {
             val conn = URI(url).toURL().openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
-            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Content-Type", "text/xml")
+            conn.instanceFollowRedirects = false
             conn.connectTimeout = 15_000
             conn.readTimeout = 30_000
             conn.doOutput = true
-            conn.outputStream.use { it.write(jsonBody.toByteArray()) }
+            conn.outputStream.use { it.write(xml.toByteArray()) }
 
             val status = conn.responseCode
             val responseBody = if (status in 200..299) {
@@ -242,7 +235,7 @@ class InstalledScriptsService(private val project: Project) {
                 conn.errorStream?.bufferedReader()?.readText() ?: ""
             }
 
-            log.info("Proxy response: status=$status, body=${responseBody.take(300)}")
+            log.info("Proxy response: status=$status, body=${responseBody.take(500)}")
 
             if (isSessionExpired(status, responseBody)) {
                 SessionService.getInstance(project).handleSessionExpired()
@@ -254,7 +247,6 @@ class InstalledScriptsService(private val project: Project) {
             }
 
             SessionService.getInstance(project).recordSuccessfulActivity()
-
             responseBody to null
         } catch (e: Exception) {
             log.error("InstalledScriptsService API call failed", e)
@@ -266,75 +258,45 @@ class InstalledScriptsService(private val project: Project) {
 
     private fun extractSearchResults(json: JsonNode): List<ScriptRecord> {
         val results = mutableListOf<ScriptRecord>()
-        val search = findDeep(json, "search") ?: return results
-        val rows = search.get("resultRow") ?: return results
+
+        // SearchJSON returns: {"resultRows":[{"serial":"123","ROW_DESCRIPTION":"..."},...]}
+        val rows = json.get("resultRows")
+            ?: findDeep(json, "resultRows")
+            ?: findDeep(json, "resultRow")
+            ?: findDeep(json, "search")?.get("resultRow")
+
+        if (rows == null) {
+            log.warn("extractSearchResults: no resultRows/resultRow found. Keys: ${json.fieldNames().asSequence().toList()}")
+            return results
+        }
+
         val rowList = if (rows.isArray) rows.toList() else listOf(rows)
 
         for (row in rowList) {
-            var serial = row.path("serial").asText("")
-            if (serial.isEmpty()) {
-                val attr = row.get("\$attr")
-                if (attr != null) serial = attr.path("serial").asText("")
-            }
+            val serial = row.path("serial").asText("")
             if (serial.isEmpty()) continue
 
-            var desc = row.path("rowDescription").asText("")
-            if (desc.isEmpty()) desc = row.path("ROW_DESCRIPTION").asText("")
-
-            var language = ""
-            var category = ""
-            var workArea = ""
-
-            val selectColumns = row.get("selectColumn")
-            if (selectColumns != null) {
-                val colList = if (selectColumns.isArray) selectColumns.toList() else listOf(selectColumns)
-
-                val searchSelectCols = search.get("selectColumn")
-                val colNames = mutableListOf<String>()
-                if (searchSelectCols != null) {
-                    val defList = if (searchSelectCols.isArray) searchSelectCols.toList() else listOf(searchSelectCols)
-                    defList.forEach { colNames.add(it.path("columnName").asText("")) }
-                }
-
-                for ((idx, col) in colList.withIndex()) {
-                    var colName = col.path("columnName").asText("")
-                    if (colName.isEmpty() && idx < colNames.size) {
-                        colName = colNames[idx]
-                    }
-                    val contents = col.path("contents").asText("")
-                    when (colName) {
-                        "LANGUAGE" -> language = contents
-                        "CATEGORY" -> category = contents
-                        "CLIENT_TRAN_WORK_AREA_OPTION" -> workArea = contents
-                        "DESCRIPTION", "ROW_DESCRIPTION" -> if (desc.isEmpty()) desc = contents
-                    }
-                    if (colName.isEmpty() && idx == 0 && desc.isEmpty()) {
-                        desc = contents
-                    }
-                }
-            }
+            // Try multiple field names for description
+            var desc = row.path("ROW_DESCRIPTION").asText("")
+            if (desc.isEmpty()) desc = row.path("rowDescription").asText("")
+            if (desc.isEmpty()) desc = row.path("DESCRIPTION").asText("")
 
             results.add(ScriptRecord(
                 serial = serial,
                 description = desc,
-                language = language,
-                category = category,
-                workAreaOption = workArea
+                language = row.path("LANGUAGE").asText(""),
+                category = row.path("CATEGORY").asText(""),
+                workAreaOption = row.path("CLIENT_TRAN_WORK_AREA_OPTION").asText("")
             ))
         }
         return results
     }
 
     private fun extractScriptDetail(json: JsonNode, serial: String): ScriptDetail? {
-        val record = findDeep(json, "record")
-        if (record == null) {
-            log.warn("extractScriptDetail: no 'record' node found")
-            return null
-        }
+        val record = findDeep(json, "record") ?: return null
 
         val fields = mutableMapOf<String, String>()
 
-        // Format 1: "field" array — [{columnName, contents}, ...]
         val fieldNode = record.get("field")
         if (fieldNode != null) {
             val fieldList = if (fieldNode.isArray) fieldNode.toList() else listOf(fieldNode)
@@ -348,11 +310,9 @@ class InstalledScriptsService(private val project: Project) {
             }
         }
 
-        // Format 2: direct child nodes on record
         if (fields.isEmpty()) {
             val skip = setOf("\$attr", "operation", "tableName", "targetSerial",
-                "includeAllColumns", "includeRowDescriptions", "includeTableMetadata",
-                "includeColumnMetadata", "serial", "rowDescription")
+                "includeAllColumns", "includeRowDescriptions", "serial", "rowDescription")
             val iter = record.fields()
             while (iter.hasNext()) {
                 val (key, value) = iter.next()
