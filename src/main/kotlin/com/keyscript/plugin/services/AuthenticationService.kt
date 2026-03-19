@@ -57,7 +57,16 @@ class AuthenticationService(private val project: Project) {
         deviceId: String = ""
     ): LoginResult = withContext(Dispatchers.IO) {
         try {
-            val proxyBase = ProxyServerService.getInstance(project).getProxyBaseUrl()
+            val proxyService = ProxyServerService.getInstance(project)
+            val proxyBase = proxyService.getProxyBaseUrl()
+
+            if (!proxyService.isRunning) {
+                log.error("Proxy server not running — cannot login")
+                notify("Proxy server failed to start. Check IDE logs.", NotificationType.ERROR)
+                return@withContext LoginResult(false, error = "Proxy server not running. Check Settings > Keyscript IDE.")
+            }
+
+            log.info("Login: proxy=$proxyBase, instance=$instance, user=$username")
 
             // 1. Set instance on proxy
             httpClient.get("$proxyBase/$instance")

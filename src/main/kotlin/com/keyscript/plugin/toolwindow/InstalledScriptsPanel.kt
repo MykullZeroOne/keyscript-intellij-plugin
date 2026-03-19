@@ -410,20 +410,49 @@ class InstalledScriptsPanel(private val project: Project) {
             return
         }
 
-        val editorContent = getActiveEditorContent()
-        if (editorContent == null) {
+        val editor = FileEditorManager.getInstance(project).selectedTextEditor
+        val document = editor?.document
+        val vFile = document?.let { FileDocumentManager.getInstance().getFile(it) }
+        if (editor == null || document == null || vFile == null) {
             statusLabel.text = "No editor file open — open a script file to install"
             return
         }
-        val (sourceCode, fileName) = editorContent
+
+        val sourceCode = document.text
+        val fileName = vFile.nameWithoutExtension
+        val fileExt = vFile.extension?.lowercase() ?: ""
 
         val bundleService = BundleService.getInstance(project)
         val hasBundleConfig = bundleService.hasBundleConfig()
 
-        val dialog = InstallNewDialog(project, fileName, sourceCode, hasBundleConfig)
+        // Auto-detect if bundling is needed: React/Node files (.jsx, .tsx, .ts) or bundle config present
+        val needsBundle = hasBundleConfig || fileExt in listOf("jsx", "tsx", "ts")
+
+        // If the project needs bundling, bundle first and use the bundled output
+        var deployCode = sourceCode
+        if (needsBundle) {
+            statusLabel.text = "Bundling project..."
+            val (result, bundled) = bundleService.bundleToString()
+            if (result.success && bundled != null) {
+                deployCode = bundled
+                statusLabel.text = "Bundled (${result.outputSize} bytes)"
+            } else if (hasBundleConfig) {
+                // Bundle config exists but bundling failed — warn but allow raw install
+                val proceed = javax.swing.JOptionPane.showConfirmDialog(
+                    component,
+                    "Bundle failed: ${result.error ?: result.stderr}\n\nInstall raw source instead?",
+                    "Bundle Failed",
+                    javax.swing.JOptionPane.YES_NO_OPTION
+                )
+                if (proceed != javax.swing.JOptionPane.YES_OPTION) return
+            }
+        }
+
+        val dialog = InstallNewDialog(project, fileName, deployCode, needsBundle && deployCode != sourceCode)
         if (!dialog.showAndGet()) return
 
-        val deployCode = if (dialog.shouldBundle) {
+        // Dialog may override with fresh bundle if user toggled the checkbox
+        val finalCode = if (dialog.shouldBundle && deployCode == sourceCode) {
             val (result, bundled) = bundleService.bundleToString()
             if (!result.success || bundled == null) {
                 statusLabel.text = "Bundle failed: ${result.error ?: result.stderr}"
@@ -431,7 +460,7 @@ class InstalledScriptsPanel(private val project: Project) {
             }
             bundled
         } else {
-            sourceCode
+            deployCode
         }
 
         installButton.isEnabled = false
@@ -440,7 +469,7 @@ class InstalledScriptsPanel(private val project: Project) {
         scope.launch {
             val deployService = DeploymentService.getInstance(project)
             val result = deployService.deployNew(
-                sourceCode = deployCode,
+                sourceCode = finalCode,
                 description = dialog.description,
                 workAreaOption = dialog.workAreaOption
             )
@@ -580,8 +609,8 @@ private class UpdateConfirmDialog(
 private class InstallNewDialog(
     project: Project,
     private val fileName: String,
-    private val sourceCode: String,
-    private val hasBundleConfig: Boolean
+    private val deployCode: String,
+    private val alreadyBundled: Boolean
 ) : DialogWrapper(project) {
 
     private val descriptionField = JBTextField(fileName).apply { columns = 30 }
@@ -590,11 +619,11 @@ private class InstallNewDialog(
         "T — Test",
         "P — Production"
     )).apply {
-        // Default based on current instance
         selectedIndex = 0
     }
-    private val bundleCheckbox = JCheckBox("Bundle before deploying (esbuild)", hasBundleConfig).apply {
-        isEnabled = hasBundleConfig
+    private val bundleCheckbox = JCheckBox("Re-bundle before deploying (esbuild)", false).apply {
+        isEnabled = !alreadyBundled // only if not already bundled
+        isVisible = !alreadyBundled
     }
 
     val description: String get() = descriptionField.text.trim()
@@ -612,22 +641,30 @@ private class InstallNewDialog(
     }
 
     override fun createCenterPanel(): JComponent {
+        val codeSize = deployCode.length
+        val lineCount = deployCode.lines().size
+        val sizeLabel = if (alreadyBundled) {
+            "Bundled output ($codeSize bytes, $lineCount lines)"
+        } else {
+            "$fileName ($codeSize bytes, $lineCount lines)"
+        }
+
         val previewArea = JBTextArea().apply {
             isEditable = false
             font = Font(Font.MONOSPACED, Font.PLAIN, 11)
             lineWrap = true
-            val lines = sourceCode.lines()
+            val lines = deployCode.lines()
             text = if (lines.size > 15) {
                 lines.take(15).joinToString("\n") + "\n... (${lines.size} total lines)"
             } else {
-                sourceCode
+                deployCode
             }
         }
 
         val form = FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("Description:"), descriptionField, 1, false)
             .addLabeledComponent(JBLabel("Work Area:"), workAreaCombo, 1, false)
-            .addLabeledComponent(JBLabel("Source:"), JBLabel("$fileName (active editor)"))
+            .addLabeledComponent(JBLabel("Source:"), JBLabel(sizeLabel))
             .addComponent(bundleCheckbox)
             .addSeparator()
             .addLabeledComponent(JBLabel("Preview:"), JBScrollPane(previewArea).apply {

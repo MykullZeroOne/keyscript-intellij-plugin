@@ -36,7 +36,7 @@ class KeyscriptWorkspaceToolWindowFactory : ToolWindowFactory {
             contentManager.addContent(gettingStarted)
         }
 
-        val optionsPanel = ScriptOptionsPanel(project, CoroutineScope(SupervisorJob() + Dispatchers.Main))
+        val optionsPanel = ScriptOptionsPanel(project, CoroutineScope(SupervisorJob() + Dispatchers.Default))
         val runOptions = factory.createContent(
             optionsPanel.component,
             WorkspaceTab.RUN_OPTIONS.title,

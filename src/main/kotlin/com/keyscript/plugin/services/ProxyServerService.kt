@@ -25,6 +25,9 @@ class ProxyServerService(private val project: Project) : Disposable {
     @Volatile
     var activeProjectPath: String = ""
 
+    @Volatile
+    private var startFailed: Boolean = false
+
     fun setSsoSession(jsessionId: String) {
         ssoSessionId = jsessionId
         log.info("SSO session set: ${jsessionId.take(8)}...")
@@ -33,33 +36,39 @@ class ProxyServerService(private val project: Project) : Disposable {
     /** Ensure the proxy is running. Safe to call multiple times. */
     fun ensureStarted() {
         if (server != null) return
+        if (startFailed) return // don't retry a failed start in the same session
         synchronized(lock) {
             if (server != null) return
             val settings = KeyscriptSettings.getInstance()
             if (activeProjectPath.isEmpty()) {
                 activeProjectPath = project.basePath ?: ""
             }
+            val port = settings.proxyPort
+            val endpoint = settings.getProxyUrl()
+            val instances = settings.supportedInstances
+            log.warn("PROXY STARTING: port=$port, endpoint=$endpoint, instances=$instances")
             try {
-                log.info("Starting proxy: port=${settings.proxyPort}, endpoint=${settings.getProxyUrl()}, instances=${settings.supportedInstances}")
                 val proxyServer = KtorProxyServer(
-                    proxyPort = settings.proxyPort,
-                    proxyEndpoint = settings.getProxyUrl(),
-                    supportedInstances = settings.supportedInstances,
+                    proxyPort = port,
+                    proxyEndpoint = endpoint,
+                    jsonApiUrl = settings.getKeystoneApiBaseUrl(),
+                    supportedInstances = instances,
                     servicePort = settings.servicePort,
                     proxyService = this,
                     networkMonitor = NetworkMonitorService.getInstance(project),
                     session = SessionService.getInstance(project)
                 )
                 proxyServer.start()
-                // Give CIO engine time to bind the port
-                Thread.sleep(500)
                 server = proxyServer
-                log.info("Proxy server started on port ${settings.proxyPort}")
+                log.warn("PROXY STARTED OK on port $port")
             } catch (e: Exception) {
-                log.error("Failed to start proxy server on port ${settings.proxyPort}", e)
+                startFailed = true
+                log.error("PROXY START FAILED on port $port", e)
             }
         }
     }
+
+    val isRunning: Boolean get() = server != null
 
     @Deprecated("Use ensureStarted()", replaceWith = ReplaceWith("ensureStarted()"))
     fun start() = ensureStarted()
@@ -68,6 +77,7 @@ class ProxyServerService(private val project: Project) : Disposable {
         synchronized(lock) {
             server?.stop()
             server = null
+            startFailed = false
             log.info("Proxy server stopped")
         }
     }
@@ -79,6 +89,9 @@ class ProxyServerService(private val project: Project) : Disposable {
 
     fun getProxyBaseUrl(): String {
         ensureStarted()
+        if (!isRunning) {
+            log.error("Proxy server is not running — login will fail")
+        }
         val settings = KeyscriptSettings.getInstance()
         return "http://localhost:${settings.proxyPort}"
     }

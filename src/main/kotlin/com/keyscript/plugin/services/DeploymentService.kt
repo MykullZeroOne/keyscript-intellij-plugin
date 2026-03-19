@@ -5,18 +5,19 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.keyscript.plugin.settings.KeyscriptSettings
 import java.net.HttpURLConnection
 import java.net.URI
 
 /**
- * Deploys Keyscript files to the Keystone SCRIPT table via direct JSON API.
- * Supports insert (new deployment), update (existing serial), and search.
+ * Deploys Keyscript files to the Keystone SCRIPT table via the proxy.
+ * Uses XML format through /DirectXMLPostJSON — consistent with how the
+ * original IDE and all other data tools operate.
  */
 @Service(Service.Level.PROJECT)
 class DeploymentService(private val project: Project) {
     private val log = Logger.getInstance(DeploymentService::class.java)
     private val mapper = jacksonObjectMapper()
+    private val ns = "http://www.corelationinc.com/queryLanguage/v1.0"
 
     data class DeployResult(
         val success: Boolean,
@@ -32,30 +33,53 @@ class DeploymentService(private val project: Project) {
     )
 
     /**
-     * Search for scripts in the SCRIPT table by description.
+     * Search for scripts by description via /SearchJSON.
      */
     fun searchByDescription(description: String): Pair<List<ScriptSearchResult>, String?> {
         val session = SessionService.getInstance(project)
-        if (!session.isLoggedIn) {
-            return emptyList<ScriptSearchResult>() to "Not logged in"
-        }
+        if (!session.isLoggedIn) return emptyList<ScriptSearchResult>() to "Not logged in"
 
-        val body = buildSearchJson(session.apiSessionId, description)
-        val (responseBody, error) = postToKeystone(body)
+        val xml = """<?xml version="1.0" encoding="UTF-8"?>
+<v1:query xmlns:v1="$ns">
+  <v1:sequence><v1:transaction><v1:step><v1:search>
+    <v1:tableName>SCRIPT</v1:tableName>
+    <v1:filterName>BY_DESCRIPTION</v1:filterName>
+    <v1:includeSelectColumns option="Y"/>
+    <v1:includeTotalHitCount option="Y"/>
+    <v1:returnLimit>10</v1:returnLimit>
+    <v1:parameter>
+      <v1:columnName>DESCRIPTION</v1:columnName>
+      <v1:contents>${escapeXml(description)}</v1:contents>
+    </v1:parameter>
+  </v1:search></v1:step></v1:transaction></v1:sequence>
+</v1:query>"""
+
+        val (responseBody, error) = postToProxy("/SearchJSON", xml)
         if (error != null) return emptyList<ScriptSearchResult>() to error
 
         return try {
             val json = mapper.readTree(responseBody)
-            val results = extractSearchResults(json)
+            val rows = json.get("resultRows") ?: findDeep(json, "resultRow")
+            val results = mutableListOf<ScriptSearchResult>()
+            if (rows != null) {
+                val rowList = if (rows.isArray) rows.toList() else listOf(rows)
+                for (row in rowList) {
+                    val serial = row.path("serial").asText("")
+                    val desc = row.path("ROW_DESCRIPTION").asText(
+                        row.path("rowDescription").asText("")
+                    )
+                    if (serial.isNotEmpty()) results.add(ScriptSearchResult(serial, desc))
+                }
+            }
             results to null
         } catch (e: Exception) {
             log.warn("Failed to parse search response", e)
-            emptyList<ScriptSearchResult>() to "Failed to parse search response: ${e.message}"
+            emptyList<ScriptSearchResult>() to "Parse error: ${e.message}"
         }
     }
 
     /**
-     * Deploy (insert) a new script to the SCRIPT table.
+     * Deploy (insert) a new script to the SCRIPT table via /DirectXMLPostJSON.
      */
     fun deployNew(
         sourceCode: String,
@@ -64,31 +88,47 @@ class DeploymentService(private val project: Project) {
         workAreaTabOption: String = "Y"
     ): DeployResult {
         val session = SessionService.getInstance(project)
-        if (!session.isLoggedIn) {
-            return DeployResult(success = false, error = "Not logged in. Please login first.")
-        }
+        if (!session.isLoggedIn) return DeployResult(success = false, error = "Not logged in")
 
-        val fields = mutableListOf(
-            field("DESCRIPTION", description, ""),
-            field("LANGUAGE", "JS", ""),
-            field("CATEGORY", "C", ""),
-            field("SOURCE_CODE", sourceCode, ""),
-            field("CLIENT_TRAN_WORK_AREA_OPTION", workAreaOption, ""),
-            field("CLIENT_TRAN_W_A_TAB_OPTION", workAreaTabOption, "")
-        )
+        val xml = """<?xml version="1.0" encoding="UTF-8"?>
+<v1:query xmlns:v1="$ns">
+  <v1:sequence><v1:transaction><v1:step>
+    <v1:record label="Main">
+      <v1:operation option="I"/>
+      <v1:tableName>SCRIPT</v1:tableName>
+      <v1:field>
+        <v1:columnName>DESCRIPTION</v1:columnName>
+        <v1:newContents>${escapeXml(description)}</v1:newContents>
+      </v1:field>
+      <v1:field>
+        <v1:columnName>LANGUAGE</v1:columnName>
+        <v1:newContents>JS</v1:newContents>
+      </v1:field>
+      <v1:field>
+        <v1:columnName>CATEGORY</v1:columnName>
+        <v1:newContents>C</v1:newContents>
+      </v1:field>
+      <v1:field>
+        <v1:columnName>SOURCE_CODE</v1:columnName>
+        <v1:newContents>${escapeSourceCode(sourceCode)}</v1:newContents>
+      </v1:field>
+      <v1:field>
+        <v1:columnName>CLIENT_TRAN_WORK_AREA_OPTION</v1:columnName>
+        <v1:newContents>$workAreaOption</v1:newContents>
+      </v1:field>
+      <v1:field>
+        <v1:columnName>CLIENT_TRAN_W_A_TAB_OPTION</v1:columnName>
+        <v1:newContents>$workAreaTabOption</v1:newContents>
+      </v1:field>
+    </v1:record>
+  </v1:step></v1:transaction></v1:sequence>
+</v1:query>"""
 
-        val body = buildQueryJson(
-            sessionId = session.apiSessionId,
-            operation = "I",
-            targetSerial = null,
-            fields = fields
-        )
-
-        return executeDeployment(body)
+        return executeDeploy(xml)
     }
 
     /**
-     * Update an existing script in the SCRIPT table by serial.
+     * Update an existing script by serial via /DirectXMLPostJSON.
      */
     fun deployUpdate(
         targetSerial: String,
@@ -97,132 +137,90 @@ class DeploymentService(private val project: Project) {
         workAreaOption: String? = null
     ): DeployResult {
         val session = SessionService.getInstance(project)
-        if (!session.isLoggedIn) {
-            return DeployResult(success = false, error = "Not logged in. Please login first.")
+        if (!session.isLoggedIn) return DeployResult(success = false, error = "Not logged in")
+
+        val fieldXml = buildString {
+            append("""<v1:field><v1:columnName>SOURCE_CODE</v1:columnName><v1:newContents>${escapeSourceCode(sourceCode)}</v1:newContents><v1:operation option="S"/></v1:field>""")
+            if (!description.isNullOrBlank()) {
+                append("""<v1:field><v1:columnName>DESCRIPTION</v1:columnName><v1:newContents>${escapeXml(description)}</v1:newContents><v1:operation option="S"/></v1:field>""")
+            }
+            if (!workAreaOption.isNullOrBlank()) {
+                append("""<v1:field><v1:columnName>CLIENT_TRAN_WORK_AREA_OPTION</v1:columnName><v1:newContents>$workAreaOption</v1:newContents><v1:operation option="S"/></v1:field>""")
+            }
         }
 
-        val fields = mutableListOf(
-            field("SOURCE_CODE", sourceCode, "S")
-        )
-        if (!description.isNullOrBlank()) {
-            fields.add(field("DESCRIPTION", description, "S"))
-        }
-        if (!workAreaOption.isNullOrBlank()) {
-            fields.add(field("CLIENT_TRAN_WORK_AREA_OPTION", workAreaOption, "S"))
-        }
+        val xml = """<?xml version="1.0" encoding="UTF-8"?>
+<v1:query xmlns:v1="$ns">
+  <v1:sequence><v1:transaction><v1:step>
+    <v1:record label="Main">
+      <v1:operation option="U"/>
+      <v1:tableName>SCRIPT</v1:tableName>
+      <v1:targetSerial>$targetSerial</v1:targetSerial>
+      $fieldXml
+    </v1:record>
+  </v1:step></v1:transaction></v1:sequence>
+</v1:query>"""
 
-        val body = buildQueryJson(
-            sessionId = session.apiSessionId,
-            operation = "U",
-            targetSerial = targetSerial,
-            fields = fields
-        )
-
-        return executeDeployment(body)
+        return executeDeploy(xml)
     }
 
-    private fun field(columnName: String, newContents: String, operation: String): Map<String, Any> {
-        val f = linkedMapOf<String, Any>(
-            "columnName" to columnName,
-            "newContents" to newContents
-        )
-        if (operation.isNotEmpty()) {
-            f["operation"] = mapOf("option" to operation)
-        }
-        return f
-    }
-
-    private fun buildSearchJson(sessionId: String, description: String): String {
-        val search = linkedMapOf<String, Any>(
-            "tableName" to "SCRIPT",
-            "filterName" to "BY_DESCRIPTION",
-            "includeSelectColumns" to mapOf("option" to "Y"),
-            "includeTotalHitCount" to mapOf("option" to "Y"),
-            "returnLimit" to 10,
-            "parameter" to mapOf(
-                "columnName" to "DESCRIPTION",
-                "contents" to description
-            )
-        )
-
-        val query = linkedMapOf<String, Any>(
-            "\$attr" to mapOf("sessionId" to sessionId),
-            "sequence" to mapOf(
-                "transaction" to mapOf(
-                    "step" to mapOf(
-                        "search" to search
-                    )
-                )
-            )
-        )
-
-        return mapper.writeValueAsString(mapOf("query" to query))
-    }
-
-    private fun buildQueryJson(
-        sessionId: String,
-        operation: String,
-        targetSerial: String?,
-        fields: List<Map<String, Any>>
-    ): String {
-        val record = linkedMapOf<String, Any>(
-            "\$attr" to mapOf("label" to "Main"),
-            "operation" to mapOf("option" to operation),
-            "tableName" to "SCRIPT"
-        )
-
-
-
-        if (operation == "U" && !targetSerial.isNullOrBlank()) {
-            record["targetSerial"] = targetSerial
+    private fun executeDeploy(xml: String): DeployResult {
+        val (responseBody, error) = postToProxy("/DirectXMLPostJSON", xml)
+        if (error != null) {
+            return DeployResult(success = false, error = error, sessionExpired = error == "Session expired")
         }
 
-        record["field"] = fields
+        return try {
+            val json = mapper.readTree(responseBody)
+            // transaction may be wrapped in arrays: sequence[].transaction[]{$attr}
+            val txnNode = findDeep(json, "transaction")
+            val txn = if (txnNode != null && txnNode.isArray && txnNode.size() > 0) txnNode[0] else txnNode
+            val txnAttr = txn?.get("\$attr")
+            val txnResult = txnAttr?.path("result")?.asText("")
 
-        val query = linkedMapOf<String, Any>(
-            "\$attr" to mapOf("sessionId" to sessionId),
-            "sequence" to mapOf(
-                "transaction" to mapOf(
-                    "step" to mapOf(
-                        "record" to record
-                    )
-                )
-            )
-        )
+            // Check for exceptions
+            val exceptions = mutableListOf<String>()
+            findAllDeep(json, "exception") { node ->
+                val msg = node.path("message").asText("")
+                if (msg.isNotEmpty()) exceptions.add(msg)
+            }
+            if (exceptions.isNotEmpty()) {
+                return DeployResult(success = false, error = exceptions.joinToString("\n"))
+            }
 
-        val payload = mapOf("query" to query)
-        return mapper.writeValueAsString(payload)
-    }
+            if (txnResult != "posted") {
+                return DeployResult(success = false, error = "Transaction result: $txnResult")
+            }
 
-    /**
-     * Build the direct Keystone API URL (e.g. http://keystonedev.revfcu.com:52310/Development).
-     */
-    private fun getKeystoneUrl(): String {
-        val settings = KeyscriptSettings.getInstance()
-        val instance = ScriptParameterService.getInstance(project).instance.ifEmpty {
-            settings.getDefaultInstance()
+            val record = findDeep(json, "record")
+            val serial = record?.path("serial")?.asText("")
+            val rowDesc = record?.path("rowDescription")?.asText("")
+
+            val result = DeployResult(success = true, serial = serial, description = rowDesc)
+            com.keyscript.plugin.onboarding.OnboardingStateService.getInstance(project).completedFirstDeploy = true
+            result
+        } catch (e: Exception) {
+            log.warn("Failed to parse deploy response", e)
+            DeployResult(success = false, error = "Parse error: ${e.message}")
         }
-        val baseUrl = settings.getKeystoneApiBaseUrl()
-        return "$baseUrl/$instance"
     }
 
-    /**
-     * POST JSON directly to Keystone, returning (responseBody, error).
-     */
-    private fun postToKeystone(jsonBody: String): Pair<String?, String?> {
-        val url = getKeystoneUrl()
-        log.info("POST to $url, body size=${jsonBody.length}")
+    // ─── HTTP ───────────────────────────────────────
+
+    private fun postToProxy(endpoint: String, xml: String): Pair<String?, String?> {
+        val proxyBase = ProxyServerService.getInstance(project).getProxyBaseUrl()
+        val url = "$proxyBase$endpoint"
+        log.info("DeploymentService POST $url, xml size=${xml.length}")
 
         return try {
             val conn = URI(url).toURL().openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
-            conn.setRequestProperty("Content-Type", "application/json")
-            val session = SessionService.getInstance(project)
-            conn.setRequestProperty("Cookie", "JSESSIONID=${session.apiSessionId}")
-            conn.connectTimeout = 15_000
-            conn.readTimeout = 30_000
+            conn.setRequestProperty("Content-Type", "text/xml")
+            conn.instanceFollowRedirects = false
+            conn.connectTimeout = 30_000
+            conn.readTimeout = 60_000
             conn.doOutput = true
-            conn.outputStream.use { it.write(jsonBody.toByteArray()) }
+            conn.outputStream.use { it.write(xml.toByteArray()) }
 
             val status = conn.responseCode
             val responseBody = if (status in 200..299) {
@@ -231,118 +229,59 @@ class DeploymentService(private val project: Project) {
                 conn.errorStream?.bufferedReader()?.readText() ?: ""
             }
 
-            log.info("Keystone response: status=$status, body=${responseBody.take(300)}")
+            log.warn("DEPLOY response: status=$status, bodyLen=${responseBody.length}")
+            log.warn("DEPLOY response HEAD: ${responseBody.take(1000)}")
+            log.warn("DEPLOY response TAIL: ${responseBody.takeLast(2000)}")
 
-            // Detect session expiry
-            if (isSessionExpired(status, responseBody)) {
+            if (status == 401 || status == 403) {
                 SessionService.getInstance(project).handleSessionExpired()
                 return null to "Session expired"
             }
 
-            if (status !in 200..299) {
-                return null to "HTTP $status: ${responseBody.take(300)}"
-            }
+            if (status !in 200..299) return null to "HTTP $status: ${responseBody.take(300)}"
 
-            // Record successful API activity to keep session alive
             SessionService.getInstance(project).recordSuccessfulActivity()
-
             responseBody to null
         } catch (e: Exception) {
-            log.error("Keystone API call failed", e)
+            log.error("DeploymentService API call failed", e)
             null to "Connection failed: ${e.message}"
         }
     }
 
-    private fun executeDeployment(jsonBody: String): DeployResult {
-        val (responseBody, error) = postToKeystone(jsonBody)
+    private fun escapeXml(s: String): String =
+        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace("\"", "&quot;").replace("'", "&apos;")
 
-        if (error != null) {
-            val expired = error == "Session expired"
-            return DeployResult(success = false, error = error, sessionExpired = expired)
-        }
-
-        val result = parseDeployResponse(responseBody!!)
-        if (result.success) {
-            com.keyscript.plugin.onboarding.OnboardingStateService.getInstance(project).completedFirstDeploy = true
-        }
-        return result
-    }
-
-    private fun extractSearchResults(json: JsonNode): List<ScriptSearchResult> {
-        val results = mutableListOf<ScriptSearchResult>()
-        val search = findDeep(json, "search") ?: return results
-        val rows = search.get("resultRow") ?: return results
-        val rowList = if (rows.isArray) rows.toList() else listOf(rows)
-        for (row in rowList) {
-            val serial = row.path("serial").asText("")
-            val desc = row.path("rowDescription").asText(
-                row.path("selectColumn")?.firstOrNull()?.path("contents")?.asText("") ?: ""
-            )
-            if (serial.isNotEmpty()) {
-                results.add(ScriptSearchResult(serial, desc))
+    /**
+     * Escape source code for XML embedding. Handles all characters that
+     * are invalid in XML 1.0, including control characters that Keystone
+     * rejects with "cannot contain an invalid character".
+     */
+    private fun escapeSourceCode(s: String): String {
+        val sb = StringBuilder(s.length + s.length / 10)
+        for (ch in s) {
+            when {
+                ch == '&' -> sb.append("&amp;")
+                ch == '<' -> sb.append("&lt;")
+                ch == '>' -> sb.append("&gt;")
+                ch == '"' -> sb.append("&quot;")
+                // Single quotes are left as-is (valid in XML element content)
+                ch == '\n' || ch == '\r' || ch == '\t' -> sb.append(ch)
+                ch.code < 0x20 -> {} // strip invalid XML control characters
+                ch.code in 0x7F..0x9F -> {} // strip C1 control characters
+                ch.code in 0xD800..0xDFFF -> {} // strip surrogate pairs
+                ch.code == 0xFFFE || ch.code == 0xFFFF -> {} // strip BOM/nonchars
+                // Replace non-ASCII with ASCII approximation for Keystone compatibility
+                ch == '\u2014' -> sb.append("--") // em-dash
+                ch == '\u2013' -> sb.append("-")  // en-dash
+                ch == '\u2018' || ch == '\u2019' -> sb.append("'") // smart quotes
+                ch == '\u201C' || ch == '\u201D' -> sb.append("\"") // smart double quotes
+                ch == '\u2026' -> sb.append("...") // ellipsis
+                ch.code > 0x7E -> {} // strip remaining non-ASCII (Keystone rejects them)
+                else -> sb.append(ch)
             }
         }
-        return results
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun parseDeployResponse(responseBody: String): DeployResult {
-        return try {
-            val json = mapper.readValue(responseBody, Map::class.java) as Map<String, Any>
-            val query = json["query"] as? Map<String, Any> ?: return DeployResult(success = false, error = "Invalid response: no query element")
-
-            val sequences = query["sequence"]
-            val seqList = if (sequences is List<*>) sequences else listOf(sequences)
-            val seq = seqList.firstOrNull() as? Map<String, Any>
-
-            val transactions = seq?.get("transaction")
-            val txnList = if (transactions is List<*>) transactions else listOf(transactions)
-            val txn = txnList.firstOrNull() as? Map<String, Any>
-
-            // Check transaction result
-            val txnAttr = txn?.get("\$attr") as? Map<String, Any>
-            val txnResult = txnAttr?.get("result") as? String
-
-            // Check for exceptions
-            val exceptions = txn?.get("exception")
-            if (exceptions != null) {
-                val excList = if (exceptions is List<*>) exceptions else listOf(exceptions)
-                val messages = excList.mapNotNull { exc ->
-                    (exc as? Map<String, Any>)?.get("message")?.toString()
-                }
-                if (messages.isNotEmpty()) {
-                    return DeployResult(success = false, error = messages.joinToString("\n"))
-                }
-            }
-
-            if (txnResult != "posted") {
-                return DeployResult(success = false, error = "Transaction result: $txnResult")
-            }
-
-            // Extract serial from the record response
-            val steps = txn?.get("step")
-            val stepList = if (steps is List<*>) steps else listOf(steps)
-            val step = stepList.firstOrNull() as? Map<String, Any>
-            val record = step?.get("record") as? Map<String, Any>
-
-            val serial = record?.get("serial")?.toString()
-            val rowDesc = record?.get("rowDescription")?.toString()
-
-            DeployResult(
-                success = true,
-                serial = serial,
-                description = rowDesc ?: "Deployed successfully"
-            )
-        } catch (e: Exception) {
-            log.warn("Failed to parse deploy response", e)
-            DeployResult(success = false, error = "Failed to parse response: ${e.message}")
-        }
-    }
-
-    private fun isSessionExpired(status: Int, responseBody: String): Boolean {
-        if (status == 401 || status == 403) return true
-        val lower = responseBody.lowercase()
-        return lower.contains("session") && (lower.contains("expired") || lower.contains("invalid"))
+        return sb.toString()
     }
 
     private fun findDeep(node: JsonNode, key: String): JsonNode? {
@@ -354,6 +293,16 @@ class DeploymentService(private val project: Project) {
             }
         }
         return null
+    }
+
+    private fun findAllDeep(node: JsonNode, key: String, action: (JsonNode) -> Unit) {
+        if (node.has(key)) {
+            val target = node.get(key)
+            if (target.isArray) target.forEach(action) else action(target)
+        }
+        for (child in node) {
+            if (child.isObject || child.isArray) findAllDeep(child, key, action)
+        }
     }
 
     companion object {

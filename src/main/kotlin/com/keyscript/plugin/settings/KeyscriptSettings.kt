@@ -11,9 +11,9 @@ import com.intellij.openapi.components.*
 class KeyscriptSettings : PersistentStateComponent<KeyscriptSettings.State> {
 
     data class State(
-        var proxyEndpoint: String = "keystonedev.revfcu.com:8443",
-        var keystoneApiUrl: String = "http://keystonedev.revfcu.com:52310",
-        var supportedInstances: String = "Development,Test",
+        var proxyEndpoint: String = "",
+        var keystoneApiUrl: String = "",
+        var supportedInstances: String = "",
         var proxyPort: Int = 3000,
         var servicePort: Int = 3001,
         var deviceServiceUrl: String = "",

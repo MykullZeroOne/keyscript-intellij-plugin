@@ -1,11 +1,33 @@
 <idea-plugin>
     <id>com.keyscript.plugin</id>
     <name>Keyscript IDE</name>
-    <vendor>Keyscript</vendor>
+    <vendor email="msmith@revfcu.com" url="https://github.com/MykullZeroOne">Madd Robot</vendor>
 
     <description><![CDATA[
-    Development environment for Keystone scripts. Provides JCEF preview, embedded proxy,
-    authentication, script parameters, CR framework completions, and developer tools.
+<p>Complete development environment for Keystone script creation, built for IntelliJ IDEA and WebStorm.</p>
+<br/>
+<p><b>Features:</b></p>
+<ul>
+<li><b>Live Preview</b> &mdash; Run scripts in a split-editor JCEF browser panel</li>
+<li><b>Embedded Proxy</b> &mdash; Transparent HTTP proxy with automatic session management</li>
+<li><b>One-Click Login</b> &mdash; Authenticate via status bar widget with auto-reconnect</li>
+<li><b>CR Framework Completions</b> &mdash; Code assist for CR.Core, CR.XML, and Ext.js APIs</li>
+<li><b>Table Browser</b> &mdash; Browse tables, search records, view field details</li>
+<li><b>Query Builder</b> &mdash; Generate XML and JavaScript query templates</li>
+<li><b>Installed Scripts</b> &mdash; Search, install, update, and delete server-side scripts</li>
+<li><b>Script Bundling</b> &mdash; Auto-bundle React/Node projects with esbuild before deploy</li>
+<li><b>Network Monitor</b> &mdash; Capture and inspect HTTP traffic through the proxy</li>
+<li><b>Run Configurations</b> &mdash; Gutter play icons and keyboard shortcut execution</li>
+</ul>
+<br/>
+<p><b>Getting Started:</b></p>
+<ol>
+<li>Configure your Keystone server in <b>Settings &gt; Keyscript IDE</b></li>
+<li>Click the status bar widget (<code>KS: Not Logged In</code>) to log in</li>
+<li>Open a <code>.keyscript.js</code> file and click the gutter play icon</li>
+</ol>
+<br/>
+<p><b>Requirements:</b> IntelliJ IDEA or WebStorm 2025.3+ &bull; Keystone server access</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
