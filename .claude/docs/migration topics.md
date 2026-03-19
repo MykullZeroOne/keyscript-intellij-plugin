@@ -29,7 +29,7 @@ Must Stay in JS (browser-dependent)
 - All ExtJS UI components — fields, panels, grids, windows, tree panels (~80% of both bundles)
 - CR.Core.record* APIs — recordView, recordUpdate, recordSearch — these are the public CR framework API that user scripts call directly
 - CR.XML class — DOM builder/parser used by scripts
-- CR.Settings timers — dirty flags and save cadence tied to browser state
+- CR.Settings timers — dirty flags an, d save cadence tied to browser state
 - CR.Core.searchPrompt — live-search UI with typing/pagination
 - >>OVR<< / >>EXC<< / >>SNF<< response protocol — ~700 lines of override/exception dialog handling deeply coupled to UI. This is the hardest blocker and should be deferred
 
