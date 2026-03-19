@@ -54,7 +54,7 @@ class TableBrowserPanel(private val project: Project) {
         emptyText.setText("No tables available")
         emptyText.appendLine("Login to load table metadata", SimpleTextAttributes.GRAYED_ATTRIBUTES, null)
     }
-    @Suppress("unused")
+    @Suppress("DEPRECATION") // ListSpeedSearch constructor deprecated but installOn not available in 2025.3
     private val tableListSpeedSearch = object : ListSpeedSearch<TableEntry>(tableList) {
         override fun getElementText(element: Any?): String? = (element as? TableEntry)?.name
     }
@@ -976,9 +976,7 @@ class TableBrowserPanel(private val project: Project) {
 
         // Try flat record fields (key=value directly on record node)
         if (record != null) {
-            val fields = record.properties()
-            while (fields.hasNext()) {
-                val (key, value) = fields.next()
+            for ((key, value) in record.properties()) {
                 if (key in skip) continue
                 val text = nodeToString(value)
                 results.add(key to text)

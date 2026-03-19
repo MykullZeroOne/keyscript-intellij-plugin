@@ -313,9 +313,7 @@ class InstalledScriptsService(private val project: Project) {
         if (fields.isEmpty()) {
             val skip = setOf("\$attr", "operation", "tableName", "targetSerial",
                 "includeAllColumns", "includeRowDescriptions", "serial", "rowDescription")
-            val iter = record.properties()
-            while (iter.hasNext()) {
-                val (key, value) = iter.next()
+            for ((key, value) in record.properties()) {
                 if (key in skip) continue
                 when {
                     value.isTextual -> fields[key] = value.asText()

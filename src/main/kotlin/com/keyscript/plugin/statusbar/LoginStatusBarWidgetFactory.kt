@@ -1,9 +1,6 @@
 package com.keyscript.plugin.statusbar
 
 import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.CommonDataKeys
-import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
@@ -82,11 +79,8 @@ private class LoginStatusBarWidget(private val project: Project) :
         if (!session.isLoggedIn) {
             // Not logged in — delegate to the registered LoginAction
             val action = ActionManager.getInstance().getAction("Keyscript.Login") ?: return@Consumer
-            val dataContext = SimpleDataContext.builder()
-                .add(CommonDataKeys.PROJECT, project)
-                .build()
-            val event = AnActionEvent.createFromAnAction(action, mouseEvent, "StatusBarWidget", dataContext)
-            action.actionPerformed(event)
+            val source = mouseEvent.component
+            ActionManager.getInstance().tryToExecute(action, mouseEvent, source, "StatusBarWidget", true)
             return@Consumer
         }
 
