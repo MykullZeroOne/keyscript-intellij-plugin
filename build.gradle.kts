@@ -64,9 +64,13 @@ dependencies {
     val jacksonVersion = "2.18.2" // Stable version
     implementation("com.fasterxml.jackson.core:jackson-databind:$jacksonVersion")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:$jacksonVersion")
+
+    // Testing
+    testImplementation("junit:junit:4.13.2")
 }
 
 intellijPlatform {
+    // instrumentCode disabled: java-compiler-ant-tasks resolution fails with local SDK
     instrumentCode = false
 
     pluginConfiguration {
@@ -75,7 +79,7 @@ intellijPlatform {
 
         ideaVersion {
             sinceBuild = "253"
-            untilBuild = "253.*"
+            untilBuild = "254.*"
         }
     }
 
@@ -95,6 +99,7 @@ tasks {
         gradleVersion = "8.11.1"
     }
 
+    // buildSearchableOptions disabled: requires full IDE context unavailable with local SDK
     buildSearchableOptions {
         enabled = false
     }

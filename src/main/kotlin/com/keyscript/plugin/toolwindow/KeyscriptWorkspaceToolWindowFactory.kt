@@ -12,8 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 
 class KeyscriptWorkspaceToolWindowFactory : ToolWindowFactory {
-    @Suppress("DEPRECATION")
-    override fun isApplicable(project: Project): Boolean =
+    override fun shouldBeAvailable(project: Project): Boolean =
         KeyscriptProjectDetector.isKeyscriptProject(project)
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {

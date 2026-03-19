@@ -1,7 +1,7 @@
 package com.keyscript.plugin.services
 
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import com.keyscript.plugin.KeyscriptJson
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.components.Service
@@ -16,6 +16,7 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.intellij.openapi.Disposable
 import java.net.URLEncoder
 import javax.net.ssl.X509TrustManager
 
@@ -24,9 +25,9 @@ import javax.net.ssl.X509TrustManager
  * All API calls go through the proxy for consistent session management.
  */
 @Service(Service.Level.PROJECT)
-class AuthenticationService(private val project: Project) {
+class AuthenticationService(private val project: Project) : Disposable {
     private val log = Logger.getInstance(AuthenticationService::class.java)
-    private val mapper = jacksonObjectMapper()
+    private val mapper = KeyscriptJson.mapper
 
     private val httpClient = HttpClient(CIO) {
         expectSuccess = false
@@ -37,10 +38,12 @@ class AuthenticationService(private val project: Project) {
         }
         engine {
             https {
-                trustManager = object : X509TrustManager {
-                    override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
-                    override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
-                    override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
+                if (KeyscriptSettings.getInstance().trustSelfSigned) {
+                    trustManager = object : X509TrustManager {
+                        override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
+                        override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
+                        override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
+                    }
                 }
             }
         }
@@ -75,7 +78,7 @@ class AuthenticationService(private val project: Project) {
             if (deviceId.isNotBlank()) {
                 httpClient.post("$proxyBase/api/device-id") {
                     contentType(ContentType.Application.Json)
-                    setBody("""{"deviceId":"${deviceId.replace("\"", "\\\"")}"}""")
+                    setBody(mapper.writeValueAsString(mapOf("deviceId" to deviceId)))
                 }
             }
 
@@ -200,6 +203,10 @@ class AuthenticationService(private val project: Project) {
             .getNotificationGroup("Keyscript")
             .createNotification("Keyscript", message, type)
             .notify(project)
+    }
+
+    override fun dispose() {
+        httpClient.close()
     }
 
     companion object {

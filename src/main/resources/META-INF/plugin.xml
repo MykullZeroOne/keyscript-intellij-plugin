@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.keyscript.plugin</id>
     <name>Keyscript IDE</name>
-    <vendor email="msmith@revfcu.com" url="https://github.com/MykullZeroOne">Madd Robot</vendor>
+    <vendor url="https://github.com/MykullZeroOne">Madd Robot</vendor>
 
     <description><![CDATA[
 <p>Complete development environment for Keystone script creation, built for IntelliJ IDEA and WebStorm.</p>
@@ -29,6 +29,18 @@
 <br/>
 <p><b>Requirements:</b> IntelliJ IDEA or WebStorm 2025.3+ &bull; Keystone server access</p>
     ]]></description>
+
+    <change-notes><![CDATA[
+<b>v2.1.0</b>
+<ul>
+<li>Major proxy, data tools, and onboarding improvements</li>
+<li>Added interactive first-run onboarding experience</li>
+<li>Added installed scripts management, download action, and bundle watch</li>
+<li>Security hardening: proxy binds to localhost only, CORS restricted, configurable TLS trust</li>
+<li>Resource cleanup: HTTP clients properly closed on disposal</li>
+<li>Performance: bounded LRU cache for script parameters, ArrayDeque for network events</li>
+</ul>
+    ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="javascript-support.xml">JavaScript</depends>

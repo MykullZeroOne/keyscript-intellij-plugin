@@ -11,8 +11,7 @@ import com.keyscript.plugin.services.NetworkMonitorService
 import com.intellij.icons.AllIcons
 
 class KeyscriptDiagnosticsToolWindowFactory : ToolWindowFactory {
-    @Suppress("DEPRECATION")
-    override fun isApplicable(project: Project): Boolean =
+    override fun shouldBeAvailable(project: Project): Boolean =
         KeyscriptProjectDetector.isKeyscriptProject(project)
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {

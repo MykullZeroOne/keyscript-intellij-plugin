@@ -17,7 +17,8 @@ class KeyscriptSettings : PersistentStateComponent<KeyscriptSettings.State> {
         var proxyPort: Int = 3000,
         var servicePort: Int = 3001,
         var deviceServiceUrl: String = "",
-        var deviceName: String = ""
+        var deviceName: String = "",
+        var trustSelfSigned: Boolean = true
     )
 
     private var myState = State()
@@ -60,6 +61,10 @@ class KeyscriptSettings : PersistentStateComponent<KeyscriptSettings.State> {
     var deviceName: String
         get() = myState.deviceName
         set(value) { myState.deviceName = value }
+
+    var trustSelfSigned: Boolean
+        get() = myState.trustSelfSigned
+        set(value) { myState.trustSelfSigned = value }
 
     /** Build the direct Keystone API URL (e.g. http://keystonedev.revfcu.com:52310) */
     fun getKeystoneApiBaseUrl(): String {

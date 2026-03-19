@@ -1,7 +1,7 @@
 package com.keyscript.plugin.services
 
 import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.keyscript.plugin.KeyscriptJson
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -19,7 +19,7 @@ import java.net.URI
 @Service(Service.Level.PROJECT)
 class InstalledScriptsService(private val project: Project) {
     private val log = Logger.getInstance(InstalledScriptsService::class.java)
-    private val mapper = jacksonObjectMapper()
+    private val mapper = KeyscriptJson.mapper
 
     private val ns = "http://www.corelationinc.com/queryLanguage/v1.0"
 
@@ -313,7 +313,7 @@ class InstalledScriptsService(private val project: Project) {
         if (fields.isEmpty()) {
             val skip = setOf("\$attr", "operation", "tableName", "targetSerial",
                 "includeAllColumns", "includeRowDescriptions", "serial", "rowDescription")
-            val iter = record.fields()
+            val iter = record.properties()
             while (iter.hasNext()) {
                 val (key, value) = iter.next()
                 if (key in skip) continue

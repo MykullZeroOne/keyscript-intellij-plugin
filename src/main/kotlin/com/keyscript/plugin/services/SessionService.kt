@@ -84,7 +84,7 @@ class SessionService(private val project: Project) : Disposable {
         this.loginData = loginData
         this.consecutiveFailures = 0
         this.lastSuccessfulPing.set(System.currentTimeMillis())
-        log.info("Session established for $username: ${jsessionId.take(8)}...")
+        log.info("Session established for $username")
         notifyListeners()
         startHeartbeat()
     }

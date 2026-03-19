@@ -1,7 +1,7 @@
 package com.keyscript.plugin.services
 
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import com.keyscript.plugin.KeyscriptJson
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -32,7 +32,7 @@ import kotlin.io.path.relativeToOrNull
 @Service(Service.Level.PROJECT)
 class BundleService(private val project: Project) {
     private val log = Logger.getInstance(BundleService::class.java)
-    private val mapper = jacksonObjectMapper()
+    private val mapper = KeyscriptJson.mapper
 
     data class BundleConfig(
         val entry: String = "src/index.jsx",

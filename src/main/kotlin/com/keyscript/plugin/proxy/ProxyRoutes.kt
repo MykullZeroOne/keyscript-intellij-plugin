@@ -17,7 +17,8 @@ import java.net.NetworkInterface
 import java.net.URL
 import java.net.URLDecoder
 import com.intellij.openapi.diagnostic.Logger
-import java.util.concurrent.ConcurrentHashMap
+import com.keyscript.plugin.settings.KeyscriptSettings
+import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -33,7 +34,11 @@ class ProxyRoutes(
     private val session: com.keyscript.plugin.services.SessionService
 ) {
     private val log = Logger.getInstance(ProxyRoutes::class.java)
-    private val ideParamsData = ConcurrentHashMap<String, String>()
+    private val ideParamsData: MutableMap<String, String> = Collections.synchronizedMap(
+        object : LinkedHashMap<String, String>(100, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean = size > 100
+        }
+    )
     private val ideParamsSeq = AtomicInteger(0)
 
     private val useHttps = proxyEndpoint.startsWith("https") ||
@@ -45,10 +50,12 @@ class ProxyRoutes(
         expectSuccess = false
         engine {
             https {
-                trustManager = object : X509TrustManager {
-                    override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
-                    override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
-                    override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
+                if (KeyscriptSettings.getInstance().trustSelfSigned) {
+                    trustManager = object : X509TrustManager {
+                        override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
+                        override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>?, authType: String?) {}
+                        override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
+                    }
                 }
             }
         }
@@ -455,7 +462,7 @@ class ProxyRoutes(
                     ?.firstNotNullOfOrNull { cookie ->
                         Regex("""JSESSIONID=([^;]+)""").find(cookie)?.groupValues?.get(1)
                     }
-                log.info("UserLogin: extracted JSESSIONID from Set-Cookie: ${jsessionId?.take(8)}...")
+                log.info("UserLogin: extracted JSESSIONID from Set-Cookie")
             }
 
             if (jsessionId != null) {
@@ -642,5 +649,9 @@ class ProxyRoutes(
 
     private fun loadResource(resourcePath: String): InputStream? {
         return this::class.java.classLoader.getResourceAsStream(resourcePath)
+    }
+
+    fun close() {
+        httpClient.close()
     }
 }

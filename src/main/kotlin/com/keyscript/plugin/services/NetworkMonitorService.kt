@@ -35,24 +35,26 @@ class NetworkMonitorService(private val project: Project) {
         val timestamp: Long get() = request?.timestamp ?: response?.timestamp ?: 0L
     }
 
-    private val events = CopyOnWriteArrayList<NetworkEvent>()
+    private val events = ArrayDeque<NetworkEvent>(500)
+    private val eventsLock = Any()
     private val listeners = CopyOnWriteArrayList<(NetworkEvent) -> Unit>()
 
     fun addEvent(event: NetworkEvent) {
-        events.add(event)
-        // Keep last 500 events
-        while (events.size > 500) events.removeAt(0)
+        synchronized(eventsLock) {
+            events.addLast(event)
+            while (events.size > 500) events.removeFirst()
+        }
         listeners.forEach { it(event) }
     }
 
-    fun getEvents(): List<NetworkEvent> = events.toList()
+    fun getEvents(): List<NetworkEvent> = synchronized(eventsLock) { events.toList() }
 
     /**
      * Returns correlated request/response exchanges, ordered by timestamp.
      * Each unique event ID produces one exchange that may contain a request, a response, or both.
      */
     fun getExchanges(): List<NetworkExchange> {
-        val grouped = events.filter { it.type != "console" }.groupBy { it.id }
+        val grouped = getEvents().filter { it.type != "console" }.groupBy { it.id }
         return grouped.map { (id, evts) ->
             NetworkExchange(
                 id = id,
@@ -66,15 +68,15 @@ class NetworkMonitorService(private val project: Project) {
      * Finds the matching response event for a given request ID, or null if not yet received.
      */
     fun findResponse(requestId: String): NetworkEvent? =
-        events.firstOrNull { it.id == requestId && it.type == "response" }
+        getEvents().firstOrNull { it.id == requestId && it.type == "response" }
 
     /**
      * Finds the matching request event for a given ID, or null.
      */
     fun findRequest(requestId: String): NetworkEvent? =
-        events.firstOrNull { it.id == requestId && it.type == "request" }
+        getEvents().firstOrNull { it.id == requestId && it.type == "request" }
 
-    fun clear() = events.clear()
+    fun clear() = synchronized(eventsLock) { events.clear() }
 
     fun addListener(listener: (NetworkEvent) -> Unit) {
         listeners.add(listener)

@@ -3,7 +3,7 @@ package com.keyscript.plugin.services
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.node.ArrayNode
 import com.fasterxml.jackson.databind.node.ObjectNode
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.keyscript.plugin.KeyscriptJson
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -18,7 +18,7 @@ import java.net.URI
 @Service(Service.Level.PROJECT)
 class KeystoneApiClient(private val project: Project) {
     private val log = Logger.getInstance(KeystoneApiClient::class.java)
-    private val mapper = jacksonObjectMapper()
+    private val mapper = KeyscriptJson.mapper
 
     data class ApiResult(
         val success: Boolean,

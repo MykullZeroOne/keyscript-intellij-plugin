@@ -1,12 +1,12 @@
 package com.keyscript.plugin.toolwindow
 
 import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.keyscript.plugin.KeyscriptJson
 import com.intellij.openapi.diagnostic.Logger
 
 object SearchJsonParsers {
     private val log = Logger.getInstance(SearchJsonParsers::class.java)
-    private val mapper = jacksonObjectMapper()
+    private val mapper = KeyscriptJson.mapper
 
     data class SearchRow(
         val serial: String,

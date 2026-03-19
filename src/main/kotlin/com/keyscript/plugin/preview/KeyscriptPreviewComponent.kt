@@ -121,8 +121,8 @@ class KeyscriptPreviewComponent(private val project: Project) {
         // __KS_STATE__ prefixed message and stores it in pendingRestoreState
         cef.executeJavaScript(CAPTURE_STATE_JS, cef.url, 0)
         // Give the JS time to execute and the console handler to capture,
-        // then trigger the reload
-        javax.swing.Timer(100) {
+        // then trigger the reload (300ms provides margin for JS execution + console bridge)
+        javax.swing.Timer(300) {
             cef.reload()
         }.apply {
             isRepeats = false

@@ -142,6 +142,7 @@ private class LoginStatusBarWidget(private val project: Project) :
     private fun switchInstance(instance: String) {
         val creds = session.loadCredentials() ?: return
         val settings = KeyscriptSettings.getInstance()
+        // runBlocking is safe here — running in a dedicated background thread, not EDT
         Thread({
             runBlocking {
                 AuthenticationService.getInstance(project).login(

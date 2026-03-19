@@ -27,19 +27,23 @@ class KtorProxyServer(
 ) {
     private val log = Logger.getInstance(KtorProxyServer::class.java)
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
+    private var routes: ProxyRoutes? = null
 
     fun start() {
         log.info("Starting Ktor proxy on port $proxyPort, endpoint=$proxyEndpoint, instances=$supportedInstances")
 
-        server = embeddedServer(CIO, port = proxyPort, host = "0.0.0.0") {
+        server = embeddedServer(CIO, port = proxyPort, host = "127.0.0.1") {
             install(CORS) {
-                anyHost()
+                allowHost("localhost", schemes = listOf("http"))
+                allowHost("localhost:$proxyPort", schemes = listOf("http"))
+                allowHost("127.0.0.1", schemes = listOf("http"))
+                allowHost("127.0.0.1:$proxyPort", schemes = listOf("http"))
                 allowHeader(HttpHeaders.ContentType)
                 allowMethod(HttpMethod.Post)
                 allowMethod(HttpMethod.Get)
             }
 
-            val routes = ProxyRoutes(
+            val proxyRoutes = ProxyRoutes(
                 proxyEndpoint = proxyEndpoint,
                 jsonApiUrl = jsonApiUrl,
                 supportedInstances = supportedInstances,
@@ -48,7 +52,8 @@ class KtorProxyServer(
                 networkMonitor = networkMonitor,
                 session = session
             )
-            routes.configure(this)
+            this@KtorProxyServer.routes = proxyRoutes
+            proxyRoutes.configure(this)
         }
         server!!.start(wait = false)
 
@@ -58,6 +63,8 @@ class KtorProxyServer(
     }
 
     fun stop() {
+        routes?.close()
+        routes = null
         server?.stop(1000, 2000)
         server = null
     }

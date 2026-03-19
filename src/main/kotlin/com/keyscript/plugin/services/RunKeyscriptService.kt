@@ -1,6 +1,6 @@
 package com.keyscript.plugin.services
 
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.keyscript.plugin.KeyscriptJson
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileDocumentManager
@@ -49,7 +49,7 @@ class RunKeyscriptService(private val project: Project) {
         val instance = params.instance.ifEmpty { KeyscriptSettings.getInstance().getDefaultInstance() }
 
         return try {
-            val jsonParams = jacksonObjectMapper().writeValueAsString(params.getScriptParameters())
+            val jsonParams = KeyscriptJson.mapper.writeValueAsString(params.getScriptParameters())
             val formBody = "value=${URLEncoder.encode(jsonParams, "UTF-8")}&id="
 
             val conn = URI("$proxyBase/SessionStore").toURL().openConnection() as HttpURLConnection

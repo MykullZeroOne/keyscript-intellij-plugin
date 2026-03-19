@@ -10,8 +10,7 @@ import com.keyscript.plugin.services.KeyscriptProjectDetector
 import com.intellij.icons.AllIcons
 
 class KeyscriptDataToolsToolWindowFactory : ToolWindowFactory {
-    @Suppress("DEPRECATION")
-    override fun isApplicable(project: Project): Boolean =
+    override fun shouldBeAvailable(project: Project): Boolean =
         KeyscriptProjectDetector.isKeyscriptProject(project)
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {

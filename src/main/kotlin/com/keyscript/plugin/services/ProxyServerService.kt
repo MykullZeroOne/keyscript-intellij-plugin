@@ -30,7 +30,7 @@ class ProxyServerService(private val project: Project) : Disposable {
 
     fun setSsoSession(jsessionId: String) {
         ssoSessionId = jsessionId
-        log.info("SSO session set: ${jsessionId.take(8)}...")
+        log.info("SSO session updated")
     }
 
     /** Ensure the proxy is running. Safe to call multiple times. */

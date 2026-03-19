@@ -1,7 +1,7 @@
 package com.keyscript.plugin.actions
 
 import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.keyscript.plugin.KeyscriptJson
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.ActionUpdateThread
@@ -106,7 +106,7 @@ private class DownloadScriptDialog(
 ) : DialogWrapper(project) {
 
     private val log = Logger.getInstance(DownloadScriptDialog::class.java)
-    private val mapper = jacksonObjectMapper()
+    private val mapper = KeyscriptJson.mapper
 
     // Search controls
     private val searchField = JBTextField()
@@ -134,12 +134,7 @@ private class DownloadScriptDialog(
     // File save
     private val fileNameField = JBTextField()
     private val saveLocationField = TextFieldWithBrowseButton().apply {
-        addBrowseFolderListener(
-            "Save Location",
-            "Choose directory to save the script",
-            project,
-            FileChooserDescriptorFactory.createSingleFolderDescriptor()
-        )
+        addBrowseFolderListener(project, FileChooserDescriptorFactory.createSingleFolderDescriptor())
     }
 
     // Status

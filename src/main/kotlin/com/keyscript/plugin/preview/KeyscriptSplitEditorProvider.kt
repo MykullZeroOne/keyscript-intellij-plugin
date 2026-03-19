@@ -29,7 +29,12 @@ import com.keyscript.plugin.services.BundleWatchService
 import com.keyscript.plugin.services.KeyscriptFileSupport
 import com.keyscript.plugin.services.PreviewContentService
 import com.keyscript.plugin.services.SessionService
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class KeyscriptSplitEditorProvider : TextEditorWithPreviewProvider(KeyscriptPreviewFileEditorProvider()) {
     override fun accept(project: Project, file: VirtualFile): Boolean =
@@ -92,6 +97,7 @@ class KeyscriptPreviewFileEditor(
 ) : FileEditor {
     private val userDataHolder = UserDataHolderBase()
     private val propertyChangeSupport = PropertyChangeSupport(this)
+    private val editorScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val previewComponent = KeyscriptPreviewComponent(project)
     private val relativePath = RunKeyscriptService.resolveScriptPath(project, file)
     private val fileDocumentManager = FileDocumentManager.getInstance()
@@ -171,14 +177,14 @@ class KeyscriptPreviewFileEditor(
 
     fun refreshFromCurrentState() {
         syncEditorContentOverride()
-        ApplicationManager.getApplication().executeOnPooledThread {
-            val result = runBlocking {
+        editorScope.launch {
+            val result = withContext(Dispatchers.IO) {
                 val scriptPath = resolveBundleOutputPath() ?: relativePath
                 RunKeyscriptService.getInstance(project).preparePreview(scriptPath)
             }
 
-            ApplicationManager.getApplication().invokeLater {
-                if (disposed) return@invokeLater
+            withContext(Dispatchers.Main) {
+                if (disposed) return@withContext
 
                 if (result.success && result.url != null) {
                     previewComponent.loadUrl(result.url)
@@ -227,13 +233,13 @@ class KeyscriptPreviewFileEditor(
         }
 
         syncEditorContentOverride()
-        ApplicationManager.getApplication().executeOnPooledThread {
-            val result = runBlocking {
+        editorScope.launch {
+            val result = withContext(Dispatchers.IO) {
                 val scriptPath = resolveBundleOutputPath() ?: relativePath
                 RunKeyscriptService.getInstance(project).preparePreview(scriptPath)
             }
-            ApplicationManager.getApplication().invokeLater {
-                if (disposed) return@invokeLater
+            withContext(Dispatchers.Main) {
+                if (disposed) return@withContext
                 if (result.success && result.url != null) {
                     previewComponent.loadUrl(result.url)
                     BrowserUtil.browse(result.url)
@@ -246,6 +252,7 @@ class KeyscriptPreviewFileEditor(
 
     override fun dispose() {
         disposed = true
+        editorScope.cancel()
         reloadTimer.stop()
         SessionService.getInstance(project).removeListener(sessionListener)
         PreviewContentService.getInstance(project).removeScriptOverride(relativePath)

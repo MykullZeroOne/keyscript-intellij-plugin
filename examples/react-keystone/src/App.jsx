@@ -200,7 +200,7 @@ const styles = {
         fontFamily: 'monospace',
         fontSize: '12px',
         width: '50%',
-        color: '#737171',
+        color: '#fff',
         borderBottom: '1px solid #eee',
         whiteSpace: 'nowrap',
         verticalAlign: 'top',

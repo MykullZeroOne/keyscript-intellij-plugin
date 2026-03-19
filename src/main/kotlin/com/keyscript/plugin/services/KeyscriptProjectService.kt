@@ -1,5 +1,6 @@
 package com.keyscript.plugin.services
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -10,6 +11,8 @@ import com.keyscript.plugin.onboarding.WelcomeDialog
 import com.keyscript.plugin.settings.KeyscriptSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.swing.SwingUtilities
@@ -19,8 +22,8 @@ import javax.swing.SwingUtilities
  * and auto-logins if credentials are already configured.
  */
 @Service(Service.Level.PROJECT)
-class KeyscriptProjectService(private val project: Project) {
-    private val serviceScope = CoroutineScope(Dispatchers.Default)
+class KeyscriptProjectService(private val project: Project) : Disposable {
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val log = Logger.getInstance(KeyscriptProjectService::class.java)
 
     suspend fun initialize() {
@@ -80,6 +83,10 @@ class KeyscriptProjectService(private val project: Project) {
                 log.warn("Auto-login error", e)
             }
         }
+    }
+
+    override fun dispose() {
+        serviceScope.cancel()
     }
 
     class StartupActivity : ProjectActivity {

@@ -2,7 +2,7 @@ package com.keyscript.plugin.toolwindow
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.keyscript.plugin.KeyscriptJson
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
@@ -44,7 +44,7 @@ class TableBrowserToolWindowFactory : ToolWindowFactory {
 class TableBrowserPanel(private val project: Project) {
     private val log = Logger.getInstance(TableBrowserPanel::class.java)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val mapper: ObjectMapper = jacksonObjectMapper()
+    private val mapper: ObjectMapper = KeyscriptJson.mapper
 
     // Sidebar: table list with filter
     private val filterField = JBTextField()
@@ -976,7 +976,7 @@ class TableBrowserPanel(private val project: Project) {
 
         // Try flat record fields (key=value directly on record node)
         if (record != null) {
-            val fields = record.fields()
+            val fields = record.properties()
             while (fields.hasNext()) {
                 val (key, value) = fields.next()
                 if (key in skip) continue

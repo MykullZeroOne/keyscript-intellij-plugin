@@ -45,5 +45,12 @@ class KeyscriptSettingsConfigurable : BoundConfigurable("Keyscript IDE") {
                     .comment("e.g. DEVICE_ID: MICHAELSMIT7921")
             }
         }
+        group("Security") {
+            row {
+                checkBox("Trust self-signed certificates")
+                    .bindSelected(settings::trustSelfSigned)
+                    .comment("Enable for Keystone servers with self-signed TLS certificates. Disable to use system trust store.")
+            }
+        }
     }
 }

@@ -4,7 +4,9 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
@@ -77,9 +79,8 @@ class BundleWatchService(private val project: Project, private val serviceScope:
                 watchProcesses[key] = process
                 log.info("esbuild watch started for $key (pid=${process.pid()})")
 
-                // Give esbuild a moment to do the initial build (using runBlocking for synchronous return as requested by current signature)
-                // Note: Better would be making ensureWatching suspend, but we mimic existing behavior safely
-                runBlocking { delay(500) }
+                // Give esbuild a moment to do the initial build
+                Thread.sleep(500)
                 true
             } catch (e: Exception) {
                 log.warn("Failed to start esbuild watch for $key", e)

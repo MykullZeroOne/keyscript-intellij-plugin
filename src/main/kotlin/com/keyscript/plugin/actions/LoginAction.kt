@@ -17,9 +17,11 @@ import com.keyscript.plugin.services.ProxyServerService
 import com.keyscript.plugin.services.SessionService
 import com.keyscript.plugin.settings.KeyscriptSettings
 import kotlinx.coroutines.runBlocking
+import com.intellij.ui.JBColor
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Dimension
+import java.util.Arrays
 import javax.swing.*
 
 class LoginAction : AnAction() {
@@ -117,7 +119,7 @@ private class LoginDialog(
 
     // Error display
     private val errorLabel = JBLabel("").apply {
-        foreground = Color(0xE5, 0x6B, 0x6B) // Red/orange for errors
+        foreground = JBColor(Color(0xE5, 0x6B, 0x6B), Color(0xFF, 0x6B, 0x68))
         isVisible = false
         border = JBUI.Borders.empty(4, 0)
     }
@@ -172,7 +174,8 @@ private class LoginDialog(
 
     override fun doOKAction() {
         val username = usernameField.text.trim()
-        val password = String(passwordField.password)
+        val passwordChars = passwordField.password
+        val password = String(passwordChars)
         val instance = instanceCombo.selectedItem?.toString() ?: settings.getDefaultInstance()
         val deviceId = deviceIdField.text.trim()
 
@@ -187,7 +190,7 @@ private class LoginDialog(
         statusLabel.isVisible = true
         isOKActionEnabled = false
 
-        // Run login in background
+        // Run login in background thread — runBlocking is safe here (off EDT)
         SwingWorker.execute {
             val result = try {
                 runBlocking {
@@ -202,10 +205,13 @@ private class LoginDialog(
                 session.saveCredentials(username, password)
             }
 
+            // Zero password from memory
+            Arrays.fill(passwordChars, '\u0000')
+
             SwingUtilities.invokeLater {
                 if (result.success) {
                     statusLabel.text = "Login successful — ${result.userName}"
-                    statusLabel.foreground = java.awt.Color(0x4E, 0xC9, 0xB0)
+                    statusLabel.foreground = JBColor(Color(0x4E, 0xC9, 0xB0), Color(0x4E, 0xC9, 0xB0))
                     statusLabel.isVisible = true
                     // Close dialog directly — don't use super.doOKAction() which re-validates
                     close(OK_EXIT_CODE)

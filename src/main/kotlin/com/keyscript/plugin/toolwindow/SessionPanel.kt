@@ -3,8 +3,9 @@ package com.keyscript.plugin.toolwindow
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.actionSystem.ActionPlaces
+import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.components.ActionLink
@@ -148,11 +149,10 @@ class SessionPanel(private val project: Project) : Disposable {
 
     private fun triggerLoginAction() {
         val action = ActionManager.getInstance().getAction("Keyscript.Login") ?: return
-        val dataContext = DataContext { dataId ->
-            if (com.intellij.openapi.actionSystem.CommonDataKeys.PROJECT.`is`(dataId)) project else null
-        }
-        val event = AnActionEvent.createFromAnAction(action, null, "KeyscriptSessionPanel", dataContext)
-        action.actionPerformed(event)
+        val dataContext = SimpleDataContext.builder()
+            .add(CommonDataKeys.PROJECT, project)
+            .build()
+        ActionManager.getInstance().tryToExecute(action, null, null, ActionPlaces.TOOLWINDOW_CONTENT, true)
     }
 
     private fun logout() {
