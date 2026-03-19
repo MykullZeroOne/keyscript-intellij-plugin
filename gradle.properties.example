@@ -1,0 +1,11 @@
+# Gradle
+org.gradle.jvmargs = -Xmx2g -XX:MaxMetaspaceSize=512m
+org.gradle.configuration-cache = true
+kotlin.stdlib.default.dependency = false
+
+# Local IDE path — avoids downloading the full SDK on each build.
+# Copy this file to gradle.properties and set your local path:
+#   macOS:   ideaPath=/Users/you/Applications/IntelliJ IDEA.app/Contents
+#   Windows: ideaPath=C:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3.3
+#   Linux:   ideaPath=/opt/intellij-idea/idea-IU-253.32098.37
+# ideaPath=

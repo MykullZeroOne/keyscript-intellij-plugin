@@ -76,6 +76,7 @@ class TableBrowserPanel(private val project: Project) {
     private val searchFilterCombo = JComboBox<String>()
     private val searchParamField = JBTextField()
     private val searchRecordsButton = JButton("Search")
+    private val viewRecordButton = JButton("View Record")
     private val searchResultModel = DefaultTableModel(arrayOf("Serial", "Description"), 0)
     private val searchResultTable = JBTable(searchResultModel).apply {
         emptyText.setText("Use a filter to search records")
@@ -96,7 +97,9 @@ class TableBrowserPanel(private val project: Project) {
 
     // Record tab
     private val recordModel = DefaultTableModel(arrayOf("Field", "Value"), 0)
-    private val recordTable = JBTable(recordModel)
+    private val recordTable = JBTable(recordModel).apply {
+        emptyText.setText("Search for a record, then select it and click 'View Record'")
+    }
 
     // Record Operations tab
     private val opViewButton = JToggleButton("V")
@@ -148,6 +151,18 @@ class TableBrowserPanel(private val project: Project) {
 
         searchRecordsButton.addActionListener { doTableSearch() }
         searchParamField.addActionListener { doTableSearch() }
+        viewRecordButton.addActionListener {
+            val row = searchResultTable.selectedRow
+            if (row >= 0) {
+                val serial = searchResultModel.getValueAt(row, 0).toString()
+                val tableName = tableList.selectedValue?.name ?: return@addActionListener
+                loadRecord(tableName, serial)
+            }
+        }
+        viewRecordButton.isEnabled = false
+        searchResultTable.selectionModel.addListSelectionListener {
+            viewRecordButton.isEnabled = searchResultTable.selectedRow >= 0
+        }
 
         // Record view on double-click in search results
         searchResultTable.addMouseListener(object : java.awt.event.MouseAdapter() {
@@ -218,11 +233,15 @@ class TableBrowserPanel(private val project: Project) {
     // ─── Panel builders ─────────────────────────────
 
     private fun buildSearchPanel(): JPanel {
-        // Top controls: filter combo + param field + search button
+        // Top controls: filter combo + param field + search + view buttons
+        val buttonPanel = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 4, 0)).apply {
+            add(searchRecordsButton)
+            add(viewRecordButton)
+        }
         val controls = JPanel(BorderLayout(4, 0)).apply {
             add(searchFilterCombo, BorderLayout.WEST)
             add(searchParamField, BorderLayout.CENTER)
-            add(searchRecordsButton, BorderLayout.EAST)
+            add(buttonPanel, BorderLayout.EAST)
         }
 
         // Filter detail: parameter table showing column names and data types

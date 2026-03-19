@@ -3,7 +3,7 @@
   "outfile": "dist/bundle.js",
   "format": "iife",
   "target": "es2020",
-  "minify": false,
+  "minify": true,
   "jsx": "automatic",
   "external": [],
   "define": {}

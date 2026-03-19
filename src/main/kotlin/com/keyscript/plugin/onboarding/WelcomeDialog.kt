@@ -6,6 +6,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBTextField
+import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.keyscript.plugin.services.SessionService
@@ -26,6 +28,21 @@ class WelcomeDialog(private val project: Project) : DialogWrapper(project, true)
     private val progressLabel = JBLabel()
     private val backButton = JButton("Back")
     private val nextButton = JButton("Next")
+
+    // Setup fields for Step 1
+    private val settings = KeyscriptSettings.getInstance()
+    private val serverField = JBTextField(settings.proxyEndpoint).apply {
+        columns = 30
+        emptyText.setText("e.g. keystonedev.yourcompany.com:8443")
+    }
+    private val instancesField = JBTextField(settings.supportedInstances.joinToString(", ")).apply {
+        columns = 30
+        emptyText.setText("e.g. Development, Test, Production")
+    }
+    private val deviceIdField = JBTextField(settings.deviceServiceUrl).apply {
+        columns = 30
+        emptyText.setText("e.g. DEVICE_ID: JSMITH1234")
+    }
 
     private val steps = listOf(
         StepConfig(
@@ -48,22 +65,9 @@ class WelcomeDialog(private val project: Project) : DialogWrapper(project, true)
         ),
         StepConfig(
             "Step 1: Configure Keystone Connection",
-            """
-            <html><body style='width:380px; font-family:sans-serif;'>
-            <p>Tell the plugin where your Keystone server lives.</p>
-            <p style='margin-top:10px;'><b>Open:</b> Settings &gt; Keyscript IDE</p>
-            <p style='margin-top:10px;'>Fill in these fields:</p>
-            <table style='margin-top:6px;'>
-              <tr><td style='color:#888; padding-right:12px;'>Server Endpoint</td><td><code>keystonedev.revfcu.com:8443</code></td></tr>
-              <tr><td style='color:#888; padding-right:12px;'>Instances</td><td><code>Development, Test</code></td></tr>
-              <tr><td style='color:#888; padding-right:12px;'>Device Identifier</td><td>Your Keystone device ID</td></tr>
-            </table>
-            <p style='color:#4EC9B0; margin-top:14px;'>&#10004; When done, you'll see the values in the settings panel.</p>
-            </body></html>
-            """.trimIndent(),
+            null, // custom panel — built in createSetupPanel()
             AllIcons.General.Settings,
-            "Open Settings",
-            action = { ShowSettingsUtil.getInstance().showSettingsDialog(project, "Keyscript IDE") }
+            null
         ),
         StepConfig(
             "Step 2: Login to Keystone",
@@ -142,7 +146,12 @@ class WelcomeDialog(private val project: Project) : DialogWrapper(project, true)
 
     override fun createCenterPanel(): JComponent {
         for ((i, step) in steps.withIndex()) {
-            cardPanel.add(createStepPanel(step), "step$i")
+            if (i == 1) {
+                // Step 1 is the inline setup form
+                cardPanel.add(createSetupPanel(step), "step$i")
+            } else {
+                cardPanel.add(createStepPanel(step), "step$i")
+            }
         }
 
         val nav = JPanel(BorderLayout()).apply {
@@ -164,6 +173,66 @@ class WelcomeDialog(private val project: Project) : DialogWrapper(project, true)
         }
     }
 
+    private fun createSetupPanel(step: StepConfig): JPanel {
+        return JPanel(BorderLayout(0, 12)).apply {
+            // Header
+            val header = JPanel(BorderLayout(10, 0)).apply {
+                add(JBLabel(step.icon).apply {
+                    preferredSize = Dimension(32, 32)
+                }, BorderLayout.WEST)
+                add(JBLabel(step.title).apply {
+                    font = JBUI.Fonts.label(16f).asBold()
+                }, BorderLayout.CENTER)
+                border = JBUI.Borders.emptyBottom(4)
+            }
+
+            val intro = JBLabel("<html><body style='width:380px;'>" +
+                "<p>Enter your Keystone server details below. These are saved automatically.</p>" +
+                "<p style='color:#888; margin-top:8px;'>Ask your admin if you're unsure about these values.</p>" +
+                "</body></html>").apply {
+                verticalAlignment = SwingConstants.TOP
+            }
+
+            val form = FormBuilder.createFormBuilder()
+                .addLabeledComponent(JBLabel("Server Endpoint:"), serverField, 1, false)
+                .addLabeledComponent(JBLabel("Instances:"), instancesField, 1, false)
+                .addLabeledComponent(JBLabel("Device Identifier:"), deviceIdField, 1, false)
+                .panel
+
+            val advancedLink = JBLabel("<html><a href='#'>Advanced settings...</a></html>").apply {
+                cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                foreground = UIUtil.getContextHelpForeground()
+                addMouseListener(object : java.awt.event.MouseAdapter() {
+                    override fun mouseClicked(e: java.awt.event.MouseEvent?) {
+                        saveSetupFields()
+                        ShowSettingsUtil.getInstance().showSettingsDialog(project, "Keyscript IDE")
+                    }
+                })
+            }
+
+            val body = JPanel(BorderLayout(0, 12)).apply {
+                add(intro, BorderLayout.NORTH)
+                add(form, BorderLayout.CENTER)
+                add(advancedLink, BorderLayout.SOUTH)
+            }
+
+            add(header, BorderLayout.NORTH)
+            add(body, BorderLayout.CENTER)
+        }
+    }
+
+    private fun saveSetupFields() {
+        val endpoint = serverField.text.trim()
+        val instances = instancesField.text.trim()
+        val deviceId = deviceIdField.text.trim()
+
+        if (endpoint.isNotBlank()) settings.proxyEndpoint = endpoint
+        if (instances.isNotBlank()) {
+            settings.supportedInstances = instances.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        }
+        if (deviceId.isNotBlank()) settings.deviceServiceUrl = deviceId
+    }
+
     private fun createStepPanel(step: StepConfig): JPanel {
         return JPanel(BorderLayout(0, 12)).apply {
             // Header
@@ -178,7 +247,7 @@ class WelcomeDialog(private val project: Project) : DialogWrapper(project, true)
             }
 
             // Content
-            val content = JBLabel(step.content).apply {
+            val content = JBLabel(step.content ?: "").apply {
                 verticalAlignment = SwingConstants.TOP
             }
 
@@ -212,6 +281,10 @@ class WelcomeDialog(private val project: Project) : DialogWrapper(project, true)
     }
 
     private fun navigateNext() {
+        // Save setup fields when leaving Step 1
+        if (currentStep == 1) {
+            saveSetupFields()
+        }
         if (currentStep < steps.lastIndex) {
             currentStep++
             updateStepUi()
@@ -229,11 +302,10 @@ class WelcomeDialog(private val project: Project) : DialogWrapper(project, true)
     }
 
     override fun doOKAction() {
+        saveSetupFields()
         val onboarding = OnboardingStateService.getInstance(project)
         onboarding.shownWelcome = true
 
-        // Check if server is already configured
-        val settings = KeyscriptSettings.getInstance()
         if (settings.proxyEndpoint.isNotBlank()) {
             onboarding.configuredServer = true
         }
@@ -252,7 +324,7 @@ class WelcomeDialog(private val project: Project) : DialogWrapper(project, true)
 
     private data class StepConfig(
         val title: String,
-        val content: String,
+        val content: String? = null,
         val icon: Icon,
         val nextButtonOverride: String? = null,
         val actionButtonText: String? = nextButtonOverride,

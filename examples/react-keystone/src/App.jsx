@@ -43,7 +43,7 @@ export default function App() {
 
     return (
         <div style={styles.container}>
-            <h2 style={styles.title}>Person Lookup</h2>
+            <h2 style={styles.title}>Person Record Lookup</h2>
 
             <div style={styles.searchBar}>
                 <input
@@ -211,6 +211,6 @@ const styles = {
         fontSize: '13px',
         borderBottom: '1px solid #eee',
         wordBreak: 'break-word',
-        color: '#fafafa',
+        color: '#fff',
     },
 };

@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.keyscript.plugin"
-version = "2.0.0"
+version = "2.1.0"
 
 // ─── Cross-platform IDE path resolution ─────────────────────────────
 // Set `ideaPath` in gradle.properties (project-local or ~/.gradle/gradle.properties)
@@ -71,7 +71,7 @@ intellijPlatform {
 
     pluginConfiguration {
         name = "Keyscript IDE"
-        version = "2.0.0"
+        version = project.version.toString()
 
         ideaVersion {
             sinceBuild = "253"

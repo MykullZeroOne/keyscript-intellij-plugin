@@ -172,7 +172,9 @@ class DeploymentService(private val project: Project) {
 
         return try {
             val json = mapper.readTree(responseBody)
-            val txn = findDeep(json, "transaction")
+            // transaction may be wrapped in arrays: sequence[].transaction[]{$attr}
+            val txnNode = findDeep(json, "transaction")
+            val txn = if (txnNode != null && txnNode.isArray && txnNode.size() > 0) txnNode[0] else txnNode
             val txnAttr = txn?.get("\$attr")
             val txnResult = txnAttr?.path("result")?.asText("")
 
@@ -263,11 +265,19 @@ class DeploymentService(private val project: Project) {
                 ch == '<' -> sb.append("&lt;")
                 ch == '>' -> sb.append("&gt;")
                 ch == '"' -> sb.append("&quot;")
-                ch == '\'' -> sb.append("&apos;")
-                ch == '\n' || ch == '\r' || ch == '\t' -> sb.append(ch) // valid XML whitespace
+                // Single quotes are left as-is (valid in XML element content)
+                ch == '\n' || ch == '\r' || ch == '\t' -> sb.append(ch)
                 ch.code < 0x20 -> {} // strip invalid XML control characters
-                ch.code in 0xD800..0xDFFF -> {} // strip surrogate pairs (invalid in XML)
+                ch.code in 0x7F..0x9F -> {} // strip C1 control characters
+                ch.code in 0xD800..0xDFFF -> {} // strip surrogate pairs
                 ch.code == 0xFFFE || ch.code == 0xFFFF -> {} // strip BOM/nonchars
+                // Replace non-ASCII with ASCII approximation for Keystone compatibility
+                ch == '\u2014' -> sb.append("--") // em-dash
+                ch == '\u2013' -> sb.append("-")  // en-dash
+                ch == '\u2018' || ch == '\u2019' -> sb.append("'") // smart quotes
+                ch == '\u201C' || ch == '\u201D' -> sb.append("\"") // smart double quotes
+                ch == '\u2026' -> sb.append("...") // ellipsis
+                ch.code > 0x7E -> {} // strip remaining non-ASCII (Keystone rejects them)
                 else -> sb.append(ch)
             }
         }
