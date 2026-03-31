@@ -32,7 +32,7 @@ dependencies {
         if (ideaPath != null) {
             local(ideaPath!!)
         } else {
-            intellijIdeaCommunity("2026.1")
+            intellijIdea("2026.1")
         }
         bundledPlugin("JavaScript")
         jetbrainsRuntime()
