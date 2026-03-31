@@ -1,11 +1,11 @@
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "2.1.20"
-    id("org.jetbrains.intellij.platform") version "2.11.0"
+    id("org.jetbrains.kotlin.jvm") version "2.3.0"
+    id("org.jetbrains.intellij.platform") version "2.13.1"
 }
 
 group = "com.keyscript.plugin"
-version = "2.1.0"
+version = "2.2.0"
 
 // ─── Cross-platform IDE path resolution ─────────────────────────────
 // Set `ideaPath` in gradle.properties (project-local or ~/.gradle/gradle.properties)
@@ -14,10 +14,10 @@ version = "2.1.0"
 //
 // Examples:
 //   macOS:   ideaPath=/Users/you/Applications/IntelliJ IDEA.app/Contents
-//   Windows: ideaPath=C:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3.3
-//   Linux:   ideaPath=/opt/intellij-idea/idea-IU-253.32098.37
+//   Windows: ideaPath=C:\\Program Files\\JetBrains\\IntelliJ IDEA 2026.1
+//   Linux:   ideaPath=/opt/intellij-idea/idea-IU-265.xxxxx.xx
 //
-// If not set, falls back to downloading IntelliJ IDEA Community 2025.3.3.
+// If not set, falls back to downloading IntelliJ IDEA Community 2026.1.
 val ideaPath: String? = providers.gradleProperty("ideaPath").orNull
 
 repositories {
@@ -32,16 +32,15 @@ dependencies {
         if (ideaPath != null) {
             local(ideaPath!!)
         } else {
-            intellijIdeaCommunity("2025.3.3")
+            intellijIdeaCommunity("2026.1")
         }
         bundledPlugin("JavaScript")
         jetbrainsRuntime()
     }
 
-    // Ktor 3.2.4 — latest version compatible with IntelliJ 2025.3's bundled Kotlin 2.1.x
-    // Ktor 3.3+ requires Kotlin 2.2+, Ktor 3.4+ requires Kotlin 2.3+ — both are
-    // incompatible with the kotlin-stdlib provided by IntelliJ 2025.3 at runtime.
-    val ktorVersion = "3.2.4"
+    // Ktor 3.4.1 — compatible with IntelliJ 2026.1's bundled Kotlin 2.3.0
+    // Ktor version must match the Kotlin stdlib bundled by the target IntelliJ platform.
+    val ktorVersion = "3.4.1"
     // Exclude kotlinx-coroutines — IntelliJ provides its own and they conflict at runtime
     // (ServiceConfigurationError: CoroutineExceptionHandler not a subtype)
     val excludeCoroutines: ExternalModuleDependency.() -> Unit = {
@@ -78,8 +77,8 @@ intellijPlatform {
         version = project.version.toString()
 
         ideaVersion {
-            sinceBuild = "253"
-            untilBuild = "253.*"
+            sinceBuild = "265"
+            untilBuild = "265.*"
         }
     }
 
@@ -96,7 +95,7 @@ kotlin {
 
 tasks {
     wrapper {
-        gradleVersion = "8.11.1"
+        gradleVersion = "9.0"
     }
 
     // buildSearchableOptions disabled: requires full IDE context unavailable with local SDK
