@@ -49,7 +49,7 @@ jobs:
           3. Search **Keyscript IDE** and click Install
 
           ### Compatibility
-          IntelliJ IDEA / WebStorm 2025.3+ (build 253.x)"
+          IntelliJ IDEA 2026.1+ (build 265.x)"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
