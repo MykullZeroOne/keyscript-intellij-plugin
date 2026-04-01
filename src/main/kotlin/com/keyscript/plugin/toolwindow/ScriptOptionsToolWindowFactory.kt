@@ -363,6 +363,12 @@ class ScriptOptionsPanel(private val project: Project, private val scope: Corout
         resultModel: DefaultListModel<SearchResult>,
         resultScroll: JBScrollPane
     ) {
+        val session = com.keyscript.plugin.services.SessionService.getInstance(project)
+        if (!session.isLoggedIn) {
+            statusLabel.text = "Not logged in — please login first"
+            return
+        }
+
         statusLabel.text = "Searching..."
         personSearchButton.isEnabled = false
         accountSearchButton.isEnabled = false
@@ -437,12 +443,21 @@ class ScriptOptionsPanel(private val project: Project, private val scope: Corout
     }
 
     private fun postXml(url: String, xml: String): String {
+        val session = com.keyscript.plugin.services.SessionService.getInstance(project)
+        if (!session.isLoggedIn) {
+            throw RuntimeException("Not logged in — please login first")
+        }
         val conn = URI(url).toURL().openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "text/xml")
         conn.doOutput = true
         conn.outputStream.use { it.write(xml.toByteArray()) }
-        return conn.inputStream.bufferedReader().readText()
+        val response = conn.inputStream.bufferedReader().readText()
+        val trimmed = response.trimStart()
+        if (trimmed.isEmpty() || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+            throw RuntimeException("Session expired or not authenticated — server returned: ${response.take(50)}")
+        }
+        return response
     }
 
     private data class SearchResult(val serial: String, val description: String) {

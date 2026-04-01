@@ -397,7 +397,8 @@ class ProxyRoutes(
         val path = call.request.path()
         var body = call.receiveText()
 
-        log.info("catchAllPost: path=$path, bodyLength=${body.length}, contentType=${call.request.contentType()}")
+        val cookieHeader = CookieInjector.injectCookie(call.request.headers["Cookie"], proxyService.ssoSessionId)
+        log.info("catchAllPost: path=$path, bodyLength=${body.length}, ssoSessionId=${proxyService.ssoSessionId.take(8)}..., cookie=${cookieHeader.take(40)}...")
 
         // Replace JSESSIONID in body
         body = CookieInjector.replaceInBody(body, proxyService.ssoSessionId)

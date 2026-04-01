@@ -348,8 +348,14 @@ class TableBrowserPanel(private val project: Project) {
         }
         scope.launch {
             try {
-                val proxyBase = ProxyServerService.getInstance(project).getProxyBaseUrl()
+                val proxyService = ProxyServerService.getInstance(project)
+                val proxyBase = proxyService.getProxyBaseUrl()
+                log.info("loadTableList: proxyBase=$proxyBase, ssoSessionId=${proxyService.ssoSessionId.take(8)}...")
                 val response = postToProxy("$proxyBase/TableBrowser", "")
+                log.info("loadTableList: response length=${response.length}, preview=${response.take(100)}")
+                if (!response.trimStart().startsWith("{") && !response.trimStart().startsWith("[")) {
+                    throw RuntimeException("Server returned non-JSON response: ${response.take(50)}")
+                }
                 val tables = parseTableList(response)
                 allTables = tables
                 SwingUtilities.invokeLater {
@@ -770,7 +776,24 @@ class TableBrowserPanel(private val project: Project) {
 
     // ─── HTTP helpers ──────────────────────────────
 
+    private fun requireSession() {
+        val session = com.keyscript.plugin.services.SessionService.getInstance(project)
+        if (!session.isLoggedIn) {
+            throw RuntimeException("Not logged in — please login first")
+        }
+    }
+
+    private fun validateJsonResponse(response: String, url: String): String {
+        val trimmed = response.trimStart()
+        if (trimmed.isEmpty() || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+            log.warn("Non-JSON response from $url: ${response.take(100)}")
+            throw RuntimeException("Session expired or not authenticated — server returned: ${response.take(50)}")
+        }
+        return response
+    }
+
     private fun postToProxy(url: String, body: String): String {
+        requireSession()
         val conn = java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
@@ -783,10 +806,11 @@ class TableBrowserPanel(private val project: Project) {
             log.warn("postToProxy $url returned HTTP $status: ${errorBody.take(200)}")
             throw RuntimeException("HTTP $status from $url")
         }
-        return conn.inputStream.bufferedReader().readText()
+        return validateJsonResponse(conn.inputStream.bufferedReader().readText(), url)
     }
 
     private fun postXml(url: String, xml: String): String {
+        requireSession()
         val conn = java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "text/xml")
@@ -799,7 +823,7 @@ class TableBrowserPanel(private val project: Project) {
             log.warn("postXml $url returned HTTP $status: ${errorBody.take(200)}")
             throw RuntimeException("HTTP $status from $url")
         }
-        return conn.inputStream.bufferedReader().readText()
+        return validateJsonResponse(conn.inputStream.bufferedReader().readText(), url)
     }
 
     // ─── JSON parsers (Jackson-based) ──────────────

@@ -16,6 +16,11 @@ object SearchJsonParsers {
 
     fun parseRows(json: String): List<SearchRow> {
         log.info("SearchJsonParsers.parseRows input: ${json.take(800)}")
+        val trimmed = json.trimStart()
+        if (trimmed.isEmpty() || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+            log.warn("parseRows: non-JSON response: ${json.take(100)}")
+            throw RuntimeException("Session expired or not authenticated — server returned: ${json.take(50)}")
+        }
         val root = mapper.readTree(json)
 
         // Try multiple field names — XML-to-JSON may use singular or plural

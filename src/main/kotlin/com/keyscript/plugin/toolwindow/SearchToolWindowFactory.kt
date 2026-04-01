@@ -141,6 +141,12 @@ class SearchPanel(private val project: Project) {
             filterName = detectPersonFilter(query)
         }
 
+        val session = com.keyscript.plugin.services.SessionService.getInstance(project)
+        if (!session.isLoggedIn) {
+            statusLabel.text = "Not logged in — please login first"
+            return
+        }
+
         searchButton.isEnabled = false
         statusLabel.text = "Searching..."
         resultModel.rowCount = 0
@@ -205,12 +211,21 @@ class SearchPanel(private val project: Project) {
     }
 
     private fun postXml(url: String, xml: String): String {
+        val session = com.keyscript.plugin.services.SessionService.getInstance(project)
+        if (!session.isLoggedIn) {
+            throw RuntimeException("Not logged in — please login first")
+        }
         val conn = java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "text/xml")
         conn.doOutput = true
         conn.outputStream.use { it.write(xml.toByteArray()) }
-        return conn.inputStream.bufferedReader().readText()
+        val response = conn.inputStream.bufferedReader().readText()
+        val trimmed = response.trimStart()
+        if (trimmed.isEmpty() || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+            throw RuntimeException("Session expired or not authenticated — server returned: ${response.take(50)}")
+        }
+        return response
     }
 
     private fun parseSearchResults(json: String): List<SearchResult> {
