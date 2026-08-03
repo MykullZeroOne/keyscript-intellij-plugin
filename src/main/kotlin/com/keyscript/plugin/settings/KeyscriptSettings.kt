@@ -72,11 +72,16 @@ class KeyscriptSettings : PersistentStateComponent<KeyscriptSettings.State> {
         return if (url.startsWith("http")) url else "http://$url"
     }
 
-    /** Build the full proxy URL with protocol */
+    /** Build the full proxy URL with protocol. Defaults to https://<host>:8443 if protocol/port are missing. */
     fun getProxyUrl(): String {
-        val endpoint = proxyEndpoint
-        val useHttps = endpoint.startsWith("https") || endpoint.endsWith(":8443") || endpoint.endsWith(":443")
-        return if (useHttps && !endpoint.startsWith("https")) "https://$endpoint" else endpoint
+        val endpoint = proxyEndpoint.trim().trimEnd('/')
+        if (endpoint.isEmpty()) return ""
+        // Already has protocol — return as-is
+        if (endpoint.startsWith("http://") || endpoint.startsWith("https://")) return endpoint
+        // Bare host[:port] — default to https, and append :8443 if no port specified
+        val hostPart = endpoint.substringBefore('/')
+        val hasPort = hostPart.contains(':')
+        return if (hasPort) "https://$endpoint" else "https://$endpoint:8443"
     }
 
     /** Get the first supported instance (default) */
